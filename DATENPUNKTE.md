@@ -55,6 +55,7 @@ currentData.pressure = bme68x.pressure / 100.0; // Pa → hPa
 - **Quelle**: Bosch BSEC Proprietary Algorithm
 - **Berechnung**: Komplexer Algorithmus basierend auf Gas-Widerstand, Temperatur und Luftfeuchtigkeit
 - **Kalibrierung**: Verbessert sich über 4-7 Tage
+- **Modus**: ULP (Ultra Low Power) - 0.33 Hz Update Rate
 
 **IAQ Bewertungsskala:**
 - 0-50: Excellent (Ausgezeichnet)
@@ -120,6 +121,27 @@ currentData.bsecCalibrated = (currentData.iaqAccuracy >= 2);
 - `co2Accuracy`: Genauigkeit der CO₂-Schätzung  
 - `breathVocAccuracy`: Genauigkeit der TVOC-Schätzung
 
+### BSEC Konfiguration (Version 0.9)
+```cpp
+// ULP Mode mit optimierter Sensor-Liste
+bsec_virtual_sensor_t sensorList[13] = {
+    BSEC_OUTPUT_IAQ,
+    BSEC_OUTPUT_STATIC_IAQ,
+    BSEC_OUTPUT_CO2_EQUIVALENT,
+    BSEC_OUTPUT_BREATH_VOC_EQUIVALENT,
+    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE,
+    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY,
+    BSEC_OUTPUT_RAW_PRESSURE,
+    BSEC_OUTPUT_RAW_GAS,
+    BSEC_OUTPUT_STABILIZATION_STATUS,
+    BSEC_OUTPUT_RUN_IN_STATUS,
+    BSEC_OUTPUT_RAW_TEMPERATURE,
+    BSEC_OUTPUT_RAW_HUMIDITY,
+    BSEC_OUTPUT_GAS_PERCENTAGE
+};
+bme68x.updateSubscription(sensorList, 13, BSEC_SAMPLE_RATE_ULP);
+```
+
 ## 🌡️ DS18B20 Temperatursensor
 
 #### **Externe Temperatur** (`externalTemp`)
@@ -129,6 +151,7 @@ currentData.bsecCalibrated = (currentData.iaqAccuracy >= 2);
 - **Auflösung**: 12-bit (0.0625°C)
 - **Zweck**: Referenz-Temperatur ohne Selbsterwärmung
 - **Vorteil**: Präziser als BME680 für absolute Temperatur
+- **Leseintervall**: Alle 10 Sekunden (optimiert für Energieeffizienz)
 
 ```cpp
 ds18b20.requestTemperatures();
@@ -175,8 +198,9 @@ Der PMS5003 verwendet ein Laser-Streulicht-Verfahren:
 - 150-250 µg/m³: Sehr ungesund
 - >250 µg/m³: Gefährlich
 
+### PMS5003 Energiemanagement (Version 0.9)
 ```cpp
-// PMS5003 Messzyklus
+// Optimierter Messzyklus mit Sleep-Modus
 pms5003.wakeUp();
 delay(3000); // Stabilisierung
 pms5003.requestRead();
@@ -185,7 +209,7 @@ if (pms5003.readUntil(pmsData)) {
     currentData.pm2_5 = pmsData.PM_AE_UG_2_5;
     currentData.pm10 = pmsData.PM_AE_UG_10_0;
 }
-pms5003.sleep(); // Energiesparen
+pms5003.sleep(); // Energiesparen nach jeder Messung
 ```
 
 ## 🔌 System-Status Datenpunkte
@@ -203,6 +227,24 @@ bool bsecCalibrated;     // BSEC Genauigkeit ≥2
 uint32_t uptime_seconds; // Betriebszeit in Sekunden
 int8_t wifi_rssi;        // WiFi Signalstärke (dBm)
 ```
+
+## 🔧 Sensor-Initialisierung (Version 0.9)
+
+### Automatische I2C-Adresserkennung
+```cpp
+// BME680 Adresse automatisch ermitteln
+uint8_t bmeAddress = 0;
+if (scanI2CDevice(BME68X_I2C_ADDR_HIGH)) {
+    bmeAddress = BME68X_I2C_ADDR_HIGH;  // 0x77
+} else if (scanI2CDevice(BME68X_I2C_ADDR_LOW)) {
+    bmeAddress = BME68X_I2C_ADDR_LOW;   // 0x76
+}
+```
+
+### Exception-Handling
+- **Robuste Initialisierung** mit try-catch für alle Sensoren
+- **Graceful Degradation** bei Sensor-Ausfällen
+- **Automatische Fehlerbehandlung** ohne System-Crash
 
 ## 📡 Datenübertragungsprotokoll
 
@@ -278,24 +320,47 @@ Der Sensor sendet Rohdaten an Node-RED für erweiterte AQI-Berechnung:
 }
 ```
 
+## 💾 BSEC State Management (Version 0.9)
+
+### Automatisches Speichern
+```cpp
+// State alle 6 Stunden speichern
+if (currentData.bme68xAvailable && (millis() - lastStateTime > BSEC_STATE_SAVE_INTERVAL)) {
+    saveBsecState();
+    lastStateTime = millis();
+}
+```
+
+### Plausibilitätsprüfung
+```cpp
+// Geladenen State validieren
+if (serializedStateLength == 0 || serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE) {
+    DEBUG_PRINTLN("No valid BSEC state found - starting fresh");
+    return;
+}
+```
+
 ## ⚠️ Wichtige Hinweise
 
 ### BSEC-Kalibrierung
 - **Erste Messungen unzuverlässig** - mindestens 24h laufen lassen
 - **State wird alle 6h gespeichert** für schnellere Rekalibrierung
 - **Optimale Genauigkeit nach 4-7 Tagen** kontinuierlichem Betrieb
+- **ULP Mode**: Response Time ~1.4s, Update Rate 0.33Hz, Power ~0.1mA
 
 ### Sensor-Limitationen
 - **CO₂**: Nicht direkt gemessen, nur BSEC-Schätzung
 - **TVOC**: Relativ-Werte, nicht absolute Konzentration
 - **PMS5003**: Empfindlich gegen Luftfeuchtigkeit >85%
-- **BME680**: Selbsterwärmung bei häufiger Messung
+- **BME680**: Selbsterwärmung bei häufiger Messung (durch BSEC kompensiert)
 
-### Wartung
-- **PMS5003**: Sleep-Modus verlängert Lebensdauer
-- **BSEC State**: Backup verhindert Kalibrierungsverlust
-- **Temperatur-Korrektur**: Je nach Gehäuse anpassen
+### Wartung & Optimierungen (Version 0.9)
+- **PMS5003**: Automatischer Sleep-Modus nach jeder Messung
+- **DS18B20**: Reduzierte Lesefrequenz (10s Intervall)
+- **BSEC State**: Robustes Backup-System verhindert Kalibrierungsverlust
+- **Exception-Handling**: Verbesserte Fehlerbehandlung
+- **Temperatur-Korrektur**: Konfigurierbare Offsets für BME680
 
 ---
 
-*Diese Dokumentation beschreibt die Implementierung in Version 0.8 des ESP32 Air Quality Monitors*
+*Diese Dokumentation beschreibt die Implementierung in Version 0.9 des ESP32 Air Quality Monitors*
