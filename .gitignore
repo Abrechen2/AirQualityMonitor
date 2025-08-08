@@ -1,0 +1,54 @@
+# ===== ARDUINO ESP32 PROJECT .GITIGNORE =====
+
+# ===== WICHTIGE GEHEIME DATEIEN =====
+secrets.h
+
+# ===== ARDUINO IDE DATEIEN =====
+*.fqbn
+*.hex
+*.bin
+*.elf
+*.map
+build/
+.build/
+.vscode/
+.pio/
+.pioenvs/
+.piolibdeps/
+
+
+
+# ===== COMPILER OUTPUT =====
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.app
+
+# ===== BACKUP UND TEMP DATEIEN =====
+*~
+*.bak
+*.tmp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== LOG DATEIEN =====
+*.log
+debug.txt
+serial_output.txt
+
+# ===== DEVELOPMENT TOOLS =====
+.idea/
+*.iml
+*.sublime-*
+.vscode/settings.json
+.vscode/tasks.json
+
+
+
