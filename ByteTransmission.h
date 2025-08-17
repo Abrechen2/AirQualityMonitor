@@ -7,6 +7,7 @@
 #include "config.h"
 #include "secrets.h"
 #include "SensorManager.h"
+#include "TimeUtils.h"
 
 // ===== BYTE TRANSMISSION PROTOCOL =====
 // Kompaktes Binärformat für minimale Datenübertragung
@@ -131,7 +132,7 @@ SensorDataPacket ByteTransmissionManager::createPacket(const SensorData& data) {
   SensorDataPacket packet = {0};
   
   // Header
-  packet.timestamp = millis() / 1000;  // Unix-ähnlich
+  packet.timestamp = (uint32_t)(getUptimeMillis() / 1000);  // Unix-like since start
   
   // BME68X Daten
   if (data.bme68xAvailable) {
@@ -164,7 +165,7 @@ SensorDataPacket ByteTransmissionManager::createPacket(const SensorData& data) {
   }
   
   // System Daten
-  packet.uptime_seconds = millis() / 1000;  // Sekunden seit Start
+  packet.uptime_seconds = (uint32_t)(getUptimeMillis() / 1000);  // Seconds since start
   packet.wifi_rssi = (int8_t)WiFi.RSSI();
   
   // Checksumme berechnen

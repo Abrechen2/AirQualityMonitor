@@ -8,6 +8,7 @@
 #include "config.h"
 #include "secrets.h"
 #include "SensorManager.h"
+#include "TimeUtils.h"
 
 // ===== AQI RESULT STRUCTURE =====
 struct AQIResult {
@@ -91,8 +92,8 @@ bool WiFiManager::sendSensorData(const SensorData& data) {
   DynamicJsonDocument doc(1536); // Größer für mehr Daten
   
   // Timestamp
-  doc["timestamp"] = millis();
-  doc["uptime"] = millis() / 1000;
+    doc["timestamp"] = getUptimeMillis();
+    doc["uptime"] = getUptimeMillis() / 1000;
   
   // BME68X BSEC Daten
   if (data.bme68xAvailable) {
