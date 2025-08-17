@@ -167,6 +167,16 @@ Header (4B) + BME680 (24B) + DS18B20 (3B) + PMS5003 (7B) + System (5B) + Checksu
 - **Nach 24h**: Genauigkeit = 2 (verwendbar)
 - **Nach 7 Tagen**: Genauigkeit = 3 (optimal)
 
+## 🐛 Debugging
+
+Die Firmware bietet umfangreiche Debug-Ausgaben über die serielle Schnittstelle, um den Ablauf besser nachvollziehen zu können.
+
+1. `DEBUG_ENABLED` in `config.h` auf `1` setzen (Standard).
+2. Seriellen Monitor mit **115200 Baud** öffnen.
+3. Während des Betriebs werden Informationen zu WiFi-Verbindung, HTTP-Anfragen und Sensordaten ausgegeben.
+
+Diese Ausgaben helfen, Probleme schneller zu erkennen und zu beheben.
+
 ## 📁 Projektstruktur
 
 ```

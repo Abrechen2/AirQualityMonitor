@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include "config.h"
 #include "secrets.h"
 #include "SensorManager.h"
@@ -187,24 +188,28 @@ uint8_t ByteTransmissionManager::calculateChecksum(const SensorDataPacket& packe
 
 bool ByteTransmissionManager::sendBinaryData(const SensorDataPacket& packet) {
   HTTPClient http;
-  http.begin(NODERED_SEND_URL);
+  bool success = false;
+
+  if (!http.begin(NODERED_SEND_URL)) {
+    DEBUG_PRINTLN("HTTP begin failed");
+    return false;
+  }
+
   http.addHeader("Content-Type", "application/octet-stream");
   http.addHeader("X-Packet-Size", String(sizeof(SensorDataPacket)));
   http.setTimeout(5000);
-  
+
   DEBUG_PRINTF("Sending binary packet (%d bytes)\n", sizeof(SensorDataPacket));
-  
-  // Binäre Daten senden
+
   int httpResponseCode = http.POST((uint8_t*)&packet, sizeof(SensorDataPacket));
-  
-  bool success = false;
-  if (httpResponseCode > 0) {
-    DEBUG_PRINTF("Binary data sent successfully, HTTP: %d\n", httpResponseCode);
+
+  if (httpResponseCode == 200) {
+    DEBUG_PRINTLN("Binary data sent successfully");
     success = true;
   } else {
     DEBUG_PRINTF("HTTP POST failed: %d\n", httpResponseCode);
   }
-  
+
   http.end();
   return success;
 }
@@ -214,7 +219,11 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   AQIResult result;
   
   HTTPClient http;
-  http.begin(NODERED_AQI_URL);
+  if (!http.begin(NODERED_AQI_URL)) {
+    DEBUG_PRINTLN("HTTP begin failed (AQI)");
+    return result;
+  }
+
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(3000);
   
@@ -226,44 +235,29 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
                    ",\"calibrated\":" + (data.bsecCalibrated ? "true" : "false") + "}";
   
   int httpResponseCode = http.POST(request);
-  
+
   if (httpResponseCode == 200) {
     String response = http.getString();
     DEBUG_PRINTF("Full AQI Response: %s\n", response.c_str());
-    
-    // KORRIGIERT: Suche nach dem nested "combined" Wert
-    int combinedPos = response.indexOf("\"combined\":");
-    int levelPos = response.indexOf("\"level\":\"");
-    int colorPos = response.indexOf("\"color\":\"");
-    
-    if (combinedPos > 0) {
-      int start = combinedPos + 11; // "combined": hat 11 Zeichen
-      int end = response.indexOf(',', start);
-      if (end == -1) end = response.indexOf('}', start);
-      
-      String aqiStr = response.substring(start, end);
-      result.aqi = aqiStr.toFloat();
+
+    StaticJsonDocument<256> doc;
+    DeserializationError err = deserializeJson(doc, response);
+    if (!err) {
+      result.aqi = doc["combined"] | result.aqi;
+      result.level = doc["level"] | result.level;
+      const char* colorStr = doc["color"];
+      if (colorStr) {
+        result.colorCode = parseColorCode(String(colorStr));
+      }
       result.success = true;
-      
-      DEBUG_PRINTF("Extracted AQI: %s -> %.1f\n", aqiStr.c_str(), result.aqi);
+      DEBUG_PRINTF("Parsed AQI JSON: %.1f (%s)\n", result.aqi, result.level.c_str());
+    } else {
+      DEBUG_PRINTF("JSON parse error: %s\n", err.c_str());
     }
-    
-    if (levelPos > 0) {
-      int start = levelPos + 9;
-      int end = response.indexOf('\"', start);
-      result.level = response.substring(start, end);
-    }
-    
-    if (colorPos > 0) {
-      int start = colorPos + 9;
-      int end = response.indexOf('\"', start);
-      String colorStr = response.substring(start, end);
-      result.colorCode = parseColorCode(colorStr);
-    }
-    
-    DEBUG_PRINTF("Final parsed AQI: %.1f (%s)\n", result.aqi, result.level.c_str());
+  } else {
+    DEBUG_PRINTF("AQI HTTP error: %d\n", httpResponseCode);
   }
-  
+
   http.end();
   return result;
 }
