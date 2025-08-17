@@ -6,6 +6,7 @@
 #include <Adafruit_NeoPixel.h>
 #include "config.h"
 #include "SensorManager.h"
+#include "TimeUtils.h"
 
 // ===== DISPLAY MANAGER CLASS =====
 class DisplayManager {
@@ -270,7 +271,7 @@ void DisplayManager::drawSystem(const SensorData& data, bool wifiConnected, bool
   
   // Uptime formatiert
   display.setCursor(0, 25);
-  unsigned long uptimeSeconds = millis() / 1000;
+  uint64_t uptimeSeconds = getUptimeMillis() / 1000;
   unsigned long days = uptimeSeconds / 86400;
   unsigned long hours = (uptimeSeconds % 86400) / 3600;
   unsigned long minutes = (uptimeSeconds % 3600) / 60;
