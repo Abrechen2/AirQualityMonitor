@@ -1,4 +1,4 @@
-# 🌪️ ESP32 Air Quality Monitor v6.0
+# 🌪️ ESP32 Air Quality Monitor v0.9
 
 ![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen)
 
