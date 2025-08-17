@@ -85,7 +85,7 @@ ByteTransmissionManager::ByteTransmissionManager() {
 }
 
 bool ByteTransmissionManager::connectWiFi() {
-  DEBUG_PRINTLN("Connecting to WiFi...");
+  DEBUG_INFO("Connecting to WiFi...");
   
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -99,12 +99,12 @@ bool ByteTransmissionManager::connectWiFi() {
   
   if (WiFi.status() == WL_CONNECTED) {
     DEBUG_PRINTLN();
-    DEBUG_PRINTF("WiFi connected: %s\n", WiFi.localIP().toString().c_str());
-    DEBUG_PRINTF("RSSI: %d dBm\n", WiFi.RSSI());
+    DEBUG_INFO("WiFi connected: %s", WiFi.localIP().toString().c_str());
+    DEBUG_INFO("RSSI: %d dBm", WiFi.RSSI());
     return true;
   } else {
     DEBUG_PRINTLN();
-    DEBUG_PRINTLN("WiFi connection failed");
+    DEBUG_ERROR("WiFi connection failed");
     return false;
   }
 }
@@ -192,17 +192,17 @@ bool ByteTransmissionManager::sendBinaryData(const SensorDataPacket& packet) {
   http.addHeader("X-Packet-Size", String(sizeof(SensorDataPacket)));
   http.setTimeout(5000);
   
-  DEBUG_PRINTF("Sending binary packet (%d bytes)\n", sizeof(SensorDataPacket));
+  DEBUG_INFO("Sending binary packet (%d bytes)", sizeof(SensorDataPacket));
   
   // Binäre Daten senden
   int httpResponseCode = http.POST((uint8_t*)&packet, sizeof(SensorDataPacket));
   
   bool success = false;
-  if (httpResponseCode > 0) {
-    DEBUG_PRINTF("Binary data sent successfully, HTTP: %d\n", httpResponseCode);
+  if (httpResponseCode >= 200 && httpResponseCode < 300) {
+    DEBUG_INFO("Binary data sent successfully, HTTP: %d", httpResponseCode);
     success = true;
   } else {
-    DEBUG_PRINTF("HTTP POST failed: %d\n", httpResponseCode);
+    DEBUG_ERROR("HTTP POST failed: %d", httpResponseCode);
   }
   
   http.end();
@@ -227,7 +227,7 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   
   int httpResponseCode = http.POST(request);
   
-  if (httpResponseCode == 200) {
+  if (httpResponseCode >= 200 && httpResponseCode < 300) {
     String response = http.getString();
     DEBUG_PRINTF("Full AQI Response: %s\n", response.c_str());
     
@@ -262,6 +262,8 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
     }
     
     DEBUG_PRINTF("Final parsed AQI: %.1f (%s)\n", result.aqi, result.level.c_str());
+  } else {
+    DEBUG_ERROR("AQI request failed, HTTP: %d", httpResponseCode);
   }
   
   http.end();

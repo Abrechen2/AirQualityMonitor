@@ -113,6 +113,11 @@ cp secrets_template.h secrets.h
 - **State-Persistierung** im EEPROM alle 6 Stunden
 - **CO₂/TVOC Genauigkeit** verbessert sich mit der Zeit
 
+## 🛠️ Debugging
+
+- Das Verhalten der seriellen Debug-Ausgaben kann über `DEBUG_ENABLED` in `config.h` gesteuert werden.
+- Zusätzliche Makros `DEBUG_INFO`, `DEBUG_WARN` und `DEBUG_ERROR` liefern klar formatierte Ausgaben zur leichteren Fehleranalyse.
+
 ## 📈 Datenformat
 
 ### Binäre Übertragung (44 Bytes)

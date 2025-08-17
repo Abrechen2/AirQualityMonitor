@@ -1,263 +1,263 @@
 [
-    {
-        "id": "112e45ba1073bfbe",
-        "type": "tab",
-        "label": "AiQualityMonitorV0.9",
-        "disabled": false,
-        "info": "",
-        "env": []
-    },
-    {
-        "id": "6ad817caf44ce3af",
-        "type": "http in",
-        "z": "112e45ba1073bfbe",
-        "name": "Binary Sensor Data",
-        "url": "/SZ-sensor-data",
-        "method": "post",
-        "upload": false,
-        "swaggerDoc": "",
-        "x": 210,
-        "y": 220,
-        "wires": [
-            [
-                "f8753b8f4f0c3180"
-            ]
-        ]
-    },
-    {
-        "id": "f8753b8f4f0c3180",
-        "type": "function",
-        "z": "112e45ba1073bfbe",
-        "name": "Binary Data Decoder",
-        "func": "// Decode 42-byte binary sensor packet (ultra-compact)\nconst buffer = msg.payload;\n\nif (!Buffer.isBuffer(buffer) || buffer.length !== 42) {\n    node.error(`Invalid packet size: ${buffer.length}, expected 42 bytes`);\n    return null;\n}\n\n// Parse binary data structure\nlet offset = 0;\n\n// Header (4 bytes)\nconst timestamp = buffer.readUInt32LE(offset); offset += 4;\n\n// BME68X Data (24 bytes)\nconst bme_temperature = buffer.readInt16LE(offset) / 100.0; offset += 2;\nconst bme_humidity = buffer.readUInt16LE(offset) / 100.0; offset += 2;\nconst bme_pressure = buffer.readUInt16LE(offset) / 10.0; offset += 2;\nconst gas_resistance = buffer.readUInt32LE(offset); offset += 4;\nconst iaq = buffer.readUInt16LE(offset) / 10.0; offset += 2;\nconst static_iaq = buffer.readUInt16LE(offset) / 10.0; offset += 2;\nconst co2_equivalent = buffer.readUInt16LE(offset); offset += 2;\nconst breath_voc = buffer.readUInt16LE(offset) / 100.0; offset += 2;\nconst iaq_accuracy = buffer.readUInt8(offset); offset += 1;\nconst co2_accuracy = buffer.readUInt8(offset); offset += 1;\nconst voc_accuracy = buffer.readUInt8(offset); offset += 1;\nconst bme_flags = buffer.readUInt8(offset); offset += 1;\n\n// DS18B20 Data (3 bytes)\nconst ds_temperature = buffer.readInt16LE(offset) / 100.0; offset += 2;\nconst ds_flags = buffer.readUInt8(offset); offset += 1;\n\n// PMS5003 Data (7 bytes)\nconst pm1_0 = buffer.readUInt16LE(offset); offset += 2;\nconst pm2_5 = buffer.readUInt16LE(offset); offset += 2;\nconst pm10 = buffer.readUInt16LE(offset); offset += 2;\nconst pms_flags = buffer.readUInt8(offset); offset += 1;\n\n// CCS811 Data (5 bytes)\nconst ccs_co2 = buffer.readUInt16LE(offset); offset += 2;\nconst ccs_tvoc = buffer.readUInt16LE(offset); offset += 2;\nconst ccs_flags = buffer.readUInt8(offset); offset += 1;\n\n// Checksum (1 byte)\nconst received_checksum = buffer.readUInt8(offset);\n\n// Verify checksum (all bytes except the last one)\nlet calculated_checksum = 0;\nfor (let i = 0; i < 41; i++) {\n    calculated_checksum ^= buffer[i];\n}\n\nif (calculated_checksum !== received_checksum) {\n    node.warn(`Checksum mismatch: calculated ${calculated_checksum}, received ${received_checksum}`);\n}\n\n// Create standardized data structure\nconst data = {\n    timestamp: timestamp,\n    environment: {\n        main_temperature: bme_temperature,\n        humidity: bme_humidity,\n        pressure: bme_pressure,\n        ds_temperature: ds_temperature\n    },\n    air_quality: {\n        gas_resistance: gas_resistance,\n        iaq: iaq,\n        static_iaq: static_iaq,\n        co2_equivalent: co2_equivalent,\n        breath_voc: breath_voc,\n        iaq_accuracy: iaq_accuracy,\n        co2_accuracy: co2_accuracy,\n        voc_accuracy: voc_accuracy,\n        pm1_0: pm1_0,\n        pm2_5: pm2_5,\n        pm10: pm10,\n        ccs_co2: ccs_co2,\n        ccs_tvoc: ccs_tvoc\n    },\n    system: {\n        checksum_valid: calculated_checksum === received_checksum,\n        calculated_checksum: calculated_checksum,\n        received_checksum: received_checksum,\n        sensors_available: {\n            bme680: (bme_flags & 1) !== 0,\n            ds18b20: (ds_flags & 1) !== 0,\n            pms5003: (pms_flags & 1) !== 0,\n            ccs811: (ccs_flags & 1) !== 0\n        }\n    }\n};\n\nmsg.payload = data;\nnode.log(`Decoded 42-byte packet with timestamp ${timestamp}`);\n\nreturn msg;",
-        "outputs": 1,
-        "timeout": "",
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 420,
-        "y": 220,
-        "wires": [
-            [
-                "c72fc9cb35d58cbf",
-                "3349332743423fc1"
-            ]
-        ]
-    },
-    {
-        "id": "c72fc9cb35d58cbf",
-        "type": "function",
-        "z": "112e45ba1073bfbe",
-        "name": "AQI Calculator",
-        "func": "const data = msg.payload;\n\n// ===== ERWEITERTE AQI BERECHNUNGEN (nur verfügbare Sensoren) =====\n\n// 1. PM2.5 AQI (PMS5003)\nfunction calculatePM25AQI(pm25) {\n    if (pm25 <= 12) return Math.round((50 / 12) * pm25);\n    if (pm25 <= 35.4) return Math.round(50 + ((100 - 50) / (35.4 - 12.1)) * (pm25 - 12.1));\n    if (pm25 <= 55.4) return Math.round(100 + ((150 - 100) / (55.4 - 35.5)) * (pm25 - 35.5));\n    if (pm25 <= 150.4) return Math.round(150 + ((200 - 150) / (150.4 - 55.5)) * (pm25 - 55.5));\n    if (pm25 <= 250.4) return Math.round(200 + ((300 - 200) / (250.4 - 150.5)) * (pm25 - 150.5));\n    return Math.round(300 + ((500 - 300) / (500.4 - 250.5)) * (pm25 - 250.5));\n}\n\n// 2. PM10 AQI (PMS5003)\nfunction calculatePM10AQI(pm10) {\n    if (pm10 <= 54) return Math.round((50 / 54) * pm10);\n    if (pm10 <= 154) return Math.round(50 + ((100 - 50) / (154 - 55)) * (pm10 - 55));\n    if (pm10 <= 254) return Math.round(100 + ((150 - 100) / (254 - 155)) * (pm10 - 155));\n    if (pm10 <= 354) return Math.round(150 + ((200 - 150) / (354 - 255)) * (pm10 - 255));\n    if (pm10 <= 424) return Math.round(200 + ((300 - 200) / (424 - 355)) * (pm10 - 355));\n    return Math.round(300 + ((500 - 300) / (604 - 425)) * (pm10 - 425));\n}\n\n// 3. PM1.0 AQI (PMS5003 - NEU!)\nfunction calculatePM1AQI(pm1) {\n    if (pm1 <= 8) return Math.round((50 / 8) * pm1);\n    if (pm1 <= 25) return Math.round(50 + ((100 - 50) / (25 - 8)) * (pm1 - 8));\n    if (pm1 <= 40) return Math.round(100 + ((150 - 100) / (40 - 25)) * (pm1 - 25));\n    if (pm1 <= 60) return Math.round(150 + ((200 - 150) / (60 - 40)) * (pm1 - 40));\n    if (pm1 <= 100) return Math.round(200 + ((300 - 200) / (100 - 60)) * (pm1 - 60));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (200 - 100)) * (pm1 - 100)));\n}\n\n// 4. CO2 AQI (BME680)\nfunction calculateCO2AQI(co2) {\n    if (co2 <= 400) return 25;\n    if (co2 <= 600) return Math.round(25 + ((50 - 25) / (600 - 400)) * (co2 - 400));\n    if (co2 <= 800) return Math.round(50 + ((100 - 50) / (800 - 600)) * (co2 - 600));\n    if (co2 <= 1000) return Math.round(100 + ((150 - 100) / (1000 - 800)) * (co2 - 800));\n    if (co2 <= 1500) return Math.round(150 + ((200 - 150) / (1500 - 1000)) * (co2 - 1000));\n    if (co2 <= 2000) return Math.round(200 + ((300 - 200) / (2000 - 1500)) * (co2 - 1500));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (5000 - 2000)) * (co2 - 2000)));\n}\n\n// 5. VOC AQI (BME680)\nfunction calculateVOCAQI(voc_mg_m3) {\n    if (voc_mg_m3 <= 0.3) return 25;\n    if (voc_mg_m3 <= 0.5) return Math.round(25 + ((50 - 25) / (0.5 - 0.3)) * (voc_mg_m3 - 0.3));\n    if (voc_mg_m3 <= 1.0) return Math.round(50 + ((100 - 50) / (1.0 - 0.5)) * (voc_mg_m3 - 0.5));\n    if (voc_mg_m3 <= 2.0) return Math.round(100 + ((150 - 100) / (2.0 - 1.0)) * (voc_mg_m3 - 1.0));\n    if (voc_mg_m3 <= 3.0) return Math.round(150 + ((200 - 150) / (3.0 - 2.0)) * (voc_mg_m3 - 2.0));\n    if (voc_mg_m3 <= 5.0) return Math.round(200 + ((300 - 200) / (5.0 - 3.0)) * (voc_mg_m3 - 3.0));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (25.0 - 5.0)) * (voc_mg_m3 - 5.0)));\n}\n\n// 6. Gas Resistance AQI (BME680)\nfunction calculateGasResistanceAQI(resistance_ohm) {\n    if (resistance_ohm >= 500000) return 25;\n    if (resistance_ohm >= 200000) return Math.round(25 + ((50 - 25) / (500000 - 200000)) * (500000 - resistance_ohm));\n    if (resistance_ohm >= 100000) return Math.round(50 + ((100 - 50) / (200000 - 100000)) * (200000 - resistance_ohm));\n    if (resistance_ohm >= 50000) return Math.round(100 + ((150 - 100) / (100000 - 50000)) * (100000 - resistance_ohm));\n    if (resistance_ohm >= 20000) return Math.round(150 + ((200 - 150) / (50000 - 20000)) * (50000 - resistance_ohm));\n    if (resistance_ohm >= 10000) return Math.round(200 + ((300 - 200) / (20000 - 10000)) * (20000 - resistance_ohm));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (10000 - 1000)) * (10000 - resistance_ohm)));\n}\n\n// 7. IAQ AQI (BME680)\nfunction calculateIAQtoAQI(iaq) {\n    if (iaq <= 50) return Math.round(iaq);\n    if (iaq <= 100) return Math.round(50 + ((100 - 50) / 50) * (iaq - 50));\n    if (iaq <= 150) return Math.round(100 + ((150 - 100) / 50) * (iaq - 100));\n    if (iaq <= 200) return Math.round(150 + ((200 - 150) / 50) * (iaq - 150));\n    if (iaq <= 300) return Math.round(200 + ((300 - 200) / 100) * (iaq - 200));\n    return Math.round(300 + ((500 - 300) / 200) * (iaq - 300));\n}\n\n// 8. Lineare Farbübergänge\nfunction getAQILevel(aqi) {\n    let level, color;\n\n    if (aqi <= 50) {\n        const ratio = aqi / 50;\n        const r = Math.round(ratio * 128);\n        const g = 255;\n        const b = 0;\n        color = `#${r.toString(16).padStart(2, '0')}${g.toString(16)}00`;\n        level = aqi <= 25 ? \"Sehr gut\" : \"Gut\";\n    }\n    else if (aqi <= 100) {\n        const ratio = (aqi - 50) / 50;\n        const r = Math.round(128 + ratio * 127);\n        const g = 255;\n        const b = 0;\n        color = `#${r.toString(16)}${g.toString(16)}00`;\n        level = aqi <= 75 ? \"Noch gut\" : \"Mäßig\";\n    }\n    else if (aqi <= 150) {\n        const ratio = (aqi - 100) / 50;\n        const r = 255;\n        const g = Math.round(255 - ratio * 129);\n        const b = 0;\n        color = `#ff${g.toString(16).padStart(2, '0')}00`;\n        level = aqi <= 125 ? \"Leicht ungesund\" : \"Ungesund für empfindliche Gruppen\";\n    }\n    else if (aqi <= 200) {\n        const ratio = (aqi - 150) / 50;\n        const r = 255;\n        const g = Math.round(126 - ratio * 126);\n        const b = 0;\n        color = `#ff${g.toString(16).padStart(2, '0')}00`;\n        level = aqi <= 175 ? \"Leicht ungesund\" : \"Ungesund\";\n    }\n    else if (aqi <= 300) {\n        const ratio = (aqi - 200) / 100;\n        const r = Math.round(255 - ratio * 112);\n        const g = 0;\n        const b = Math.round(ratio * 151);\n        color = `#${r.toString(16).padStart(2, '0')}00${b.toString(16).padStart(2, '0')}`;\n        level = aqi <= 250 ? \"Sehr ungesund\" : \"Extrem ungesund\";\n    }\n    else {\n        color = \"#800000\";\n        level = \"Gefährlich\";\n    }\n\n    return { level, color };\n}\n\n// ===== BERECHNUNG MIT GEWICHTUNG =====\nnode.log(`=== ERWEITERTE AQI BERECHNUNG (BME680 + PMS5003) ===`);\n\nconst aqiComponents = {};\nconst weights = {};\n\n// PM1.0 AQI\nif (data.air_quality.pm1_0 !== null && data.air_quality.pm1_0 !== undefined && data.air_quality.pm1_0 >= 0) {\n    aqiComponents.pm1_0_aqi = calculatePM1AQI(data.air_quality.pm1_0);\n    weights.pm1_0_aqi = 0.9;\n    node.log(`PM1.0: ${data.air_quality.pm1_0} µg/m³ = AQI ${aqiComponents.pm1_0_aqi}`);\n}\n\n// PM2.5 AQI\nif (data.air_quality.pm2_5 !== null && data.air_quality.pm2_5 !== undefined && data.air_quality.pm2_5 >= 0) {\n    aqiComponents.pm2_5_aqi = calculatePM25AQI(data.air_quality.pm2_5);\n    weights.pm2_5_aqi = 1.0;\n    node.log(`PM2.5: ${data.air_quality.pm2_5} µg/m³ = AQI ${aqiComponents.pm2_5_aqi}`);\n}\n\n// PM10 AQI\nif (data.air_quality.pm10 !== null && data.air_quality.pm10 !== undefined && data.air_quality.pm10 >= 0) {\n    aqiComponents.pm10_aqi = calculatePM10AQI(data.air_quality.pm10);\n    weights.pm10_aqi = 0.8;\n    node.log(`PM10: ${data.air_quality.pm10} µg/m³ = AQI ${aqiComponents.pm10_aqi}`);\n}\n\n// CO2 AQI\nif (data.air_quality.co2_equivalent !== null && data.air_quality.co2_equivalent !== undefined && data.air_quality.co2_equivalent > 0) {\n    aqiComponents.co2_aqi = calculateCO2AQI(data.air_quality.co2_equivalent);\n    weights.co2_aqi = (data.air_quality.co2_accuracy >= 2) ? 0.9 : 0.6;\n    node.log(`CO2: ${data.air_quality.co2_equivalent} ppm = AQI ${aqiComponents.co2_aqi} (accuracy: ${data.air_quality.co2_accuracy})`);\n}\n\n// VOC AQI\nif (data.air_quality.breath_voc !== null && data.air_quality.breath_voc !== undefined && data.air_quality.breath_voc > 0) {\n    aqiComponents.voc_aqi = calculateVOCAQI(data.air_quality.breath_voc);\n    weights.voc_aqi = (data.air_quality.voc_accuracy >= 2) ? 0.8 : 0.5;\n    node.log(`VOC: ${data.air_quality.breath_voc} mg/m³ = AQI ${aqiComponents.voc_aqi} (accuracy: ${data.air_quality.voc_accuracy})`);\n}\n\n// Gas Resistance AQI\nif (data.air_quality.gas_resistance !== null && data.air_quality.gas_resistance !== undefined && data.air_quality.gas_resistance > 0) {\n    aqiComponents.gas_resistance_aqi = calculateGasResistanceAQI(data.air_quality.gas_resistance);\n    weights.gas_resistance_aqi = 0.6;\n    node.log(`Gas Resistance: ${data.air_quality.gas_resistance} Ohm = AQI ${aqiComponents.gas_resistance_aqi}`);\n}\n\n// IAQ AQI\nif (data.air_quality.iaq !== null && data.air_quality.iaq !== undefined && data.air_quality.iaq > 0) {\n    aqiComponents.iaq_aqi = calculateIAQtoAQI(data.air_quality.iaq);\n    weights.iaq_aqi = (data.air_quality.iaq_accuracy >= 2) ? 1.0 : 0.7;\n    node.log(`IAQ: ${data.air_quality.iaq} = AQI ${aqiComponents.iaq_aqi} (accuracy: ${data.air_quality.iaq_accuracy})`);\n}\n\n// ===== GEWICHTETER KOMBINIERTER AQI =====\nlet totalWeightedAQI = 0;\nlet totalWeight = 0;\nlet dominantPollutant = \"N/A\";\nlet maxAQI = 0;\n\nfor (const [component, aqi] of Object.entries(aqiComponents)) {\n    const weight = weights[component] || 0.5;\n    totalWeightedAQI += aqi * weight;\n    totalWeight += weight;\n\n    if (aqi > maxAQI) {\n        maxAQI = aqi;\n        dominantPollutant = component.replace('_aqi', '').toUpperCase();\n    }\n}\n\nconst combinedAQI = totalWeight > 0 ? Math.round(totalWeightedAQI / totalWeight) : 25;\nconst finalAQI = Math.max(25, combinedAQI);\nconst aqiInfo = getAQILevel(finalAQI);\n\ndata.calculated_aqi = {\n    combined: finalAQI,\n    pm1_0_aqi: aqiComponents.pm1_0_aqi || 0,\n    pm2_5_aqi: aqiComponents.pm2_5_aqi || 0,\n    pm10_aqi: aqiComponents.pm10_aqi || 0,\n    co2_aqi: aqiComponents.co2_aqi || 0,\n    voc_aqi: aqiComponents.voc_aqi || 0,\n    gas_resistance_aqi: aqiComponents.gas_resistance_aqi || 0,\n    iaq_aqi: aqiComponents.iaq_aqi || 0,\n    level: aqiInfo.level,\n    color: aqiInfo.color,\n    dominant_pollutant: dominantPollutant,\n    total_components: Object.keys(aqiComponents).length,\n    weighted_average: Math.round(totalWeightedAQI / totalWeight * 100) / 100\n};\n\nnode.log(`=== FINAL AQI: ${finalAQI} (${aqiInfo.level}) ===`);\nnode.log(`Components: ${Object.keys(aqiComponents).length}, Dominant: ${dominantPollutant}`);\n\nmsg.payload = data;\nreturn msg;",
-        "outputs": 1,
-        "timeout": "",
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 720,
-        "y": 180,
-        "wires": [
-            [
-                "b70f226c694df194"
-            ]
-        ]
-    },
-    {
-        "id": "b70f226c694df194",
-        "type": "function",
-        "z": "112e45ba1073bfbe",
-        "name": "Comfort Calculator",
-        "func": "const data = msg.payload;\n\n// Komfort-Berechnungen\nfunction calculateHeatIndex(tempC, humidity) {\n    const tempF = tempC * 9/5 + 32;\n    if (tempF < 80) return tempC;\n    \n    const hi = -42.379 + 2.04901523 * tempF + 10.14333127 * humidity\n             - 0.22475541 * tempF * humidity - 0.00683783 * tempF * tempF\n             - 0.05481717 * humidity * humidity + 0.00122874 * tempF * tempF * humidity\n             + 0.00085282 * tempF * humidity * humidity - 0.00000199 * tempF * tempF * humidity * humidity;\n    \n    return (hi - 32) * 5/9;\n}\n\nfunction calculateDewPoint(tempC, humidity) {\n    const a = 17.27;\n    const b = 237.7;\n    const alpha = ((a * tempC) / (b + tempC)) + Math.log(humidity / 100.0);\n    return (b * alpha) / (a - alpha);\n}\n\nfunction calculateAbsoluteHumidity(tempC, humidity) {\n    const satVaporPressure = 6.112 * Math.exp((17.67 * tempC) / (tempC + 243.5));\n    const vaporPressure = (humidity / 100) * satVaporPressure;\n    return (2.1674 * vaporPressure) / (tempC + 273.15);\n}\n\nfunction assessComfort(temp, humidity, heatIndex) {\n    let score = 1.0;\n    let issues = [];\n    \n    // Temperatur-Bewertung (ideal: 20-24°C)\n    if (temp < 18) { score *= 0.7; issues.push(\"Zu kalt\"); }\n    else if (temp > 26) { score *= 0.8; issues.push(\"Zu warm\"); }\n    else if (temp >= 20 && temp <= 24) { score *= 1.0; }\n    else { score *= 0.9; }\n    \n    // Luftfeuchtigkeit-Bewertung (ideal: 40-60%)\n    if (humidity < 30) { score *= 0.6; issues.push(\"Zu trocken\"); }\n    else if (humidity > 70) { score *= 0.7; issues.push(\"Zu feucht\"); }\n    else if (humidity >= 40 && humidity <= 60) { score *= 1.0; }\n    else { score *= 0.85; }\n    \n    // Heat Index Bewertung\n    if (heatIndex > temp + 2) { score *= 0.8; issues.push(\"Schwül\"); }\n    \n    let level;\n    if (score >= 0.9) level = \"Sehr komfortabel\";\n    else if (score >= 0.7) level = \"Komfortabel\";\n    else if (score >= 0.5) level = \"Mäßig komfortabel\";\n    else if (score >= 0.3) level = \"Unkomfortabel\";\n    else level = \"Sehr unkomfortabel\";\n    \n    return { score: Math.round(score * 100) / 100, level, issues };\n}\n\nif (data.environment.main_temperature !== null && data.environment.humidity !== null) {\n    const temp = data.environment.main_temperature;\n    const humidity = data.environment.humidity;\n    \n    const heatIndex = calculateHeatIndex(temp, humidity);\n    const dewPoint = calculateDewPoint(temp, humidity);\n    const absHumidity = calculateAbsoluteHumidity(temp, humidity);\n    const comfort = assessComfort(temp, humidity, heatIndex);\n    \n    data.comfort = {\n        heat_index: Math.round(heatIndex * 100) / 100,\n        dew_point: Math.round(dewPoint * 100) / 100,\n        absolute_humidity: Math.round(absHumidity * 100) / 100,\n        comfort_assessment: comfort\n    };\n    \n    node.log(`Comfort calculated: ${comfort.level} (Score: ${comfort.score})`);\n}\n\nmsg.payload = data;\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 730,
-        "y": 240,
-        "wires": [
-            [
-                "b79be41c24234db2"
-            ]
-        ]
-    },
-    {
-        "id": "b79be41c24234db2",
-        "type": "function",
-        "z": "112e45ba1073bfbe",
-        "name": "Air Quality Classifier",
-        "func": "const data = msg.payload;\n\n// Erweiterte Luftqualitäts-Klassifizierung\nfunction classifyAirQuality(data) {\n    const classifications = {\n        overall: \"Unbekannt\",\n        ventilation_needed: false,\n        recommendations: []\n    };\n    \n    const scores = [];\n    \n    // IAQ Bewertung (0-500, ideal < 100)\n    if (data.air_quality.iaq !== null) {\n        let iaqScore = 1.0;\n        if (data.air_quality.iaq <= 50) iaqScore = 1.0;\n        else if (data.air_quality.iaq <= 100) iaqScore = 0.8;\n        else if (data.air_quality.iaq <= 150) iaqScore = 0.6;\n        else if (data.air_quality.iaq <= 200) iaqScore = 0.4;\n        else if (data.air_quality.iaq <= 250) iaqScore = 0.2;\n        else iaqScore = 0.0;\n        scores.push(iaqScore);\n        \n        if (data.air_quality.iaq > 100) {\n            classifications.ventilation_needed = true;\n            classifications.recommendations.push(\"Lüften empfohlen (hohe VOC-Werte)\");\n        }\n    }\n    \n    // CO2 Bewertung\n    if (data.air_quality.co2_equivalent !== null) {\n        let co2Score = 1.0;\n        if (data.air_quality.co2_equivalent <= 600) co2Score = 1.0;\n        else if (data.air_quality.co2_equivalent <= 800) co2Score = 0.8;\n        else if (data.air_quality.co2_equivalent <= 1000) co2Score = 0.6;\n        else if (data.air_quality.co2_equivalent <= 1500) co2Score = 0.4;\n        else co2Score = 0.2;\n        scores.push(co2Score);\n        \n        if (data.air_quality.co2_equivalent > 800) {\n            classifications.ventilation_needed = true;\n            classifications.recommendations.push(\"Lüften empfohlen (hohe CO2-Werte)\");\n        }\n    }\n    \n    // PM2.5 Bewertung\n    if (data.air_quality.pm2_5 !== null) {\n        let pmScore = 1.0;\n        if (data.air_quality.pm2_5 <= 12) pmScore = 1.0;\n        else if (data.air_quality.pm2_5 <= 25) pmScore = 0.8;\n        else if (data.air_quality.pm2_5 <= 35) pmScore = 0.6;\n        else if (data.air_quality.pm2_5 <= 55) pmScore = 0.4;\n        else pmScore = 0.2;\n        scores.push(pmScore);\n        \n        if (data.air_quality.pm2_5 > 25) {\n            classifications.recommendations.push(\"Luftfilter verwenden (hohe Feinstaub-Werte)\");\n        }\n    }\n    \n    // Luftfeuchtigkeit Bewertung\n    if (data.environment.humidity !== null) {\n        let humScore = 1.0;\n        if (data.environment.humidity >= 40 && data.environment.humidity <= 60) humScore = 1.0;\n        else if (data.environment.humidity >= 30 && data.environment.humidity <= 70) humScore = 0.8;\n        else if (data.environment.humidity >= 20 && data.environment.humidity <= 80) humScore = 0.6;\n        else humScore = 0.4;\n        scores.push(humScore);\n        \n        if (data.environment.humidity > 70) {\n            classifications.recommendations.push(\"Entfeuchtung empfohlen\");\n        } else if (data.environment.humidity < 30) {\n            classifications.recommendations.push(\"Befeuchtung empfohlen\");\n        }\n    }\n    \n    // Gesamtbewertung\n    const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;\n    \n    if (avgScore >= 0.8) classifications.overall = \"Sehr gut\";\n    else if (avgScore >= 0.6) classifications.overall = \"Gut\";\n    else if (avgScore >= 0.4) classifications.overall = \"Mäßig\";\n    else if (avgScore >= 0.2) classifications.overall = \"Schlecht\";\n    else classifications.overall = \"Sehr schlecht\";\n    \n    return classifications;\n}\n\n// Perform classification\ndata.air_quality_classification = classifyAirQuality(data);\n\nnode.log(`Air quality classified as: ${data.air_quality_classification.overall}`);\nif (data.air_quality_classification.ventilation_needed) {\n    node.log(\"Ventilation recommended!\");\n}\n\nmsg.payload = data;\nreturn msg;",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 740,
-        "y": 300,
-        "wires": [
-            [
-                "257ab3be868735c9"
-            ]
-        ]
-    },
-    {
-        "id": "257ab3be868735c9",
-        "type": "function",
-        "z": "112e45ba1073bfbe",
-        "name": "InfluxDB v2 Object Formatter",
-        "func": "const data = msg.payload;\nconst timestamp = Date.now(); // Milliseconds für InfluxDB v2\nconst location = \"Anpassen\";\nconst device_id = \"Anpassen\";\nconst device_type = \"AirQualityMonitor\";\n\n// Helper function to safely get numeric values\nfunction getNumericValue(value, defaultValue = 0) {\n    return (value !== null && value !== undefined && !isNaN(value)) ? Number(value) : defaultValue;\n}\n\n// Helper function to safely get boolean as integer\nfunction getBoolAsInt(value) {\n    return value ? 1 : 0;\n}\n\n// Create comprehensive sensor data object matching your format\nconst influxObject = {\n    measurement: \"air_quality\",\n    tags: {\n        device_id: device_id,\n        location: location,\n        device_type: device_type,\n        data_type: \"environmental\"\n    },\n    fields: {\n        // Temperature und Umgebung\n        temperature_celsius: getNumericValue(data.environment.main_temperature),\n        humidity_percent: getNumericValue(data.environment.humidity),\n        pressure_hpa: getNumericValue(data.environment.pressure),\n        ds_temperature_celsius: getNumericValue(data.environment.ds_temperature),\n        \n        // Berechnete Komfort-Werte\n        dew_point_celsius: data.comfort ? getNumericValue(data.comfort.dew_point) : 0,\n        heat_index_celsius: data.comfort ? getNumericValue(data.comfort.heat_index) : 0,\n        absolute_humidity_gm3: data.comfort ? getNumericValue(data.comfort.absolute_humidity) : 0,\n        comfort_index: data.comfort ? getNumericValue(data.comfort.comfort_assessment.score * 100) : 0,\n        \n        // Air Quality Index Werte\n        aqi_index: data.calculated_aqi ? getNumericValue(data.calculated_aqi.combined) : 0,\n        aqi_category: data.calculated_aqi ? getNumericValue(data.calculated_aqi.combined <= 50 ? 1 : data.calculated_aqi.combined <= 100 ? 2 : data.calculated_aqi.combined <= 150 ? 3 : data.calculated_aqi.combined <= 200 ? 4 : 5) : 0,\n        pm2_5_aqi: data.calculated_aqi ? getNumericValue(data.calculated_aqi.pm2_5_aqi) : 0,\n        pm10_aqi: data.calculated_aqi ? getNumericValue(data.calculated_aqi.pm10_aqi) : 0,\n        iaq_aqi: data.calculated_aqi ? getNumericValue(data.calculated_aqi.iaq_aqi) : 0,\n        \n        // BME68X IAQ Werte\n        iaq_index: getNumericValue(data.air_quality.iaq),\n        static_iaq: getNumericValue(data.air_quality.static_iaq),\n        iaq_accuracy_level: getNumericValue(data.air_quality.iaq_accuracy),\n        gas_resistance_ohm: getNumericValue(data.air_quality.gas_resistance),\n        \n        // CO2 und VOC\n        co2_equivalent_ppm: getNumericValue(data.air_quality.co2_equivalent),\n        co2_bme_equivalent_ppm: getNumericValue(data.air_quality.co2_equivalent), // Duplicate für Kompatibilität\n        co2_accuracy_level: getNumericValue(data.air_quality.co2_accuracy),\n        tvoc_ppb: getNumericValue(data.air_quality.breath_voc * 1000), // Convert mg/m³ to ppb (approx)\n        tvoc_mgm3: getNumericValue(data.air_quality.breath_voc),\n        voc_accuracy_level: getNumericValue(data.air_quality.voc_accuracy),\n        \n        // Partikel-Sensoren (PMS5003)\n        pm1_0_ugm3: getNumericValue(data.air_quality.pm1_0),\n        pm2_5_ugm3: getNumericValue(data.air_quality.pm2_5),\n        pm10_ugm3: getNumericValue(data.air_quality.pm10),\n        \n        // CCS811 Werte (falls vorhanden)\n        ccs_co2_ppm: getNumericValue(data.air_quality.ccs_co2),\n        ccs_tvoc_ppb: getNumericValue(data.air_quality.ccs_tvoc),\n        \n        // System Status\n        sensor_reliable: getBoolAsInt(data.system.checksum_valid),\n        bme68x_stable: getBoolAsInt(data.air_quality.iaq_accuracy >= 2),\n        bme68x_runin_complete: getBoolAsInt(data.air_quality.iaq_accuracy >= 3),\n        sensors_available_count: (\n            getBoolAsInt(data.system.sensors_available.bme680) +\n            getBoolAsInt(data.system.sensors_available.ds18b20) +\n            getBoolAsInt(data.system.sensors_available.pms5003) +\n            getBoolAsInt(data.system.sensors_available.ccs811)\n        ),\n        \n        // Alert Flags (basierend auf Grenzwerten)\n        alert_aqi: getBoolAsInt(data.calculated_aqi && data.calculated_aqi.combined > 100),\n        alert_co2: getBoolAsInt(data.air_quality.co2_equivalent > 1000),\n        alert_pm25: getBoolAsInt(data.air_quality.pm2_5 > 35),\n        alert_tvoc: getBoolAsInt(data.air_quality.breath_voc > 1.0),\n        alert_humidity_low: getBoolAsInt(data.environment.humidity < 30),\n        alert_humidity_high: getBoolAsInt(data.environment.humidity > 70),\n        \n        // Ventilation Empfehlung\n        ventilation_needed: data.air_quality_classification ? getBoolAsInt(data.air_quality_classification.ventilation_needed) : 0,\n        \n        // Uptime und Timestamp\n        uptime_seconds: getNumericValue(data.timestamp),\n        timestamp: timestamp\n    }\n};\n\n// Als Array für InfluxDB Node\nmsg.payload = [influxObject];\nmsg.influx_data = data; // Keep original data for other nodes\n\nnode.log(`Generated InfluxDB v2 object with ${Object.keys(influxObject.fields).length} fields`);\nnode.log(`AQI: ${influxObject.fields.aqi_index}, IAQ: ${influxObject.fields.iaq_index}, CO2: ${influxObject.fields.co2_equivalent_ppm}`);\n\nreturn msg;",
-        "outputs": 1,
-        "timeout": "",
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1000,
-        "y": 300,
-        "wires": [
-            [
-                "25a7b32395e5a8b1",
-                "739290d0ef814b48"
-            ]
-        ]
-    },
-    {
-        "id": "25a7b32395e5a8b1",
-        "type": "debug",
-        "z": "112e45ba1073bfbe",
-        "name": "Debug InfluxDB Data",
-        "active": true,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "payload",
-        "targetType": "msg",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 1180,
-        "y": 360,
-        "wires": []
-    },
-    {
-        "id": "3349332743423fc1",
-        "type": "http response",
-        "z": "112e45ba1073bfbe",
-        "name": "Binary Data Response",
-        "statusCode": "200",
-        "headers": {},
-        "x": 420,
-        "y": 280,
-        "wires": []
-    },
-    {
-        "id": "c425bc5235c6a3dc",
-        "type": "http in",
-        "z": "112e45ba1073bfbe",
-        "name": "AQI Request",
-        "url": "/SZ-calculate-aqi",
-        "method": "post",
-        "upload": false,
-        "skipBodyParsing": false,
-        "swaggerDoc": "",
-        "x": 210,
-        "y": 440,
-        "wires": [
-            [
-                "05573a364bb497e3",
-                "ab4e21793407bab8"
-            ]
-        ]
-    },
-    {
-        "id": "05573a364bb497e3",
-        "type": "function",
-        "z": "112e45ba1073bfbe",
-        "name": "AQI Response Generator",
-        "func": "// Generiere AQI Response für ESP32 mit erweiterten Berechnungen\nconst requestData = msg.payload;\n\n// ===== GLEICHE BERECHNUNGSFUNKTIONEN WIE IM AQI CALCULATOR =====\n\nfunction calculatePM25AQI(pm25) {\n    if (pm25 <= 12) return Math.round((50 / 12) * pm25);\n    if (pm25 <= 35.4) return Math.round(50 + ((100 - 50) / (35.4 - 12.1)) * (pm25 - 12.1));\n    if (pm25 <= 55.4) return Math.round(100 + ((150 - 100) / (55.4 - 35.5)) * (pm25 - 35.5));\n    if (pm25 <= 150.4) return Math.round(150 + ((200 - 150) / (150.4 - 55.5)) * (pm25 - 55.5));\n    if (pm25 <= 250.4) return Math.round(200 + ((300 - 200) / (250.4 - 150.5)) * (pm25 - 150.5));\n    return Math.round(300 + ((500 - 300) / (500.4 - 250.5)) * (pm25 - 250.5));\n}\n\nfunction calculatePM10AQI(pm10) {\n    if (pm10 <= 54) return Math.round((50 / 54) * pm10);\n    if (pm10 <= 154) return Math.round(50 + ((100 - 50) / (154 - 55)) * (pm10 - 55));\n    if (pm10 <= 254) return Math.round(100 + ((150 - 100) / (254 - 155)) * (pm10 - 155));\n    if (pm10 <= 354) return Math.round(150 + ((200 - 150) / (354 - 255)) * (pm10 - 255));\n    if (pm10 <= 424) return Math.round(200 + ((300 - 200) / (424 - 355)) * (pm10 - 355));\n    return Math.round(300 + ((500 - 300) / (604 - 425)) * (pm10 - 425));\n}\n\nfunction calculatePM1AQI(pm1) {\n    if (pm1 <= 8) return Math.round((50 / 8) * pm1);\n    if (pm1 <= 25) return Math.round(50 + ((100 - 50) / (25 - 8)) * (pm1 - 8));\n    if (pm1 <= 40) return Math.round(100 + ((150 - 100) / (40 - 25)) * (pm1 - 25));\n    if (pm1 <= 60) return Math.round(150 + ((200 - 150) / (60 - 40)) * (pm1 - 40));\n    if (pm1 <= 100) return Math.round(200 + ((300 - 200) / (100 - 60)) * (pm1 - 60));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (200 - 100)) * (pm1 - 100)));\n}\n\nfunction calculateCO2AQI(co2) {\n    if (co2 <= 400) return 25;\n    if (co2 <= 600) return Math.round(25 + ((50 - 25) / (600 - 400)) * (co2 - 400));\n    if (co2 <= 800) return Math.round(50 + ((100 - 50) / (800 - 600)) * (co2 - 600));\n    if (co2 <= 1000) return Math.round(100 + ((150 - 100) / (1000 - 800)) * (co2 - 800));\n    if (co2 <= 1500) return Math.round(150 + ((200 - 150) / (1500 - 1000)) * (co2 - 1000));\n    if (co2 <= 2000) return Math.round(200 + ((300 - 200) / (2000 - 1500)) * (co2 - 1500));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (5000 - 2000)) * (co2 - 2000)));\n}\n\nfunction calculateIAQtoAQI(iaq) {\n    if (iaq <= 50) return Math.round(iaq);\n    if (iaq <= 100) return Math.round(50 + ((100 - 50) / 50) * (iaq - 50));\n    if (iaq <= 150) return Math.round(100 + ((150 - 100) / 50) * (iaq - 100));\n    if (iaq <= 200) return Math.round(150 + ((200 - 150) / 50) * (iaq - 150));\n    if (iaq <= 300) return Math.round(200 + ((300 - 200) / 100) * (iaq - 200));\n    return Math.round(300 + ((500 - 300) / 200) * (iaq - 300));\n}\n\nfunction getAQILevel(aqi) {\n    let level, color;\n\n    if (aqi <= 50) {\n        const ratio = aqi / 50;\n        const r = Math.round(ratio * 128);\n        const g = 255;\n        const b = 0;\n        color = `#${r.toString(16).padStart(2, '0')}${g.toString(16)}00`;\n        level = aqi <= 25 ? \"Sehr gut\" : \"Gut\";\n    }\n    else if (aqi <= 100) {\n        const ratio = (aqi - 50) / 50;\n        const r = Math.round(128 + ratio * 127);\n        const g = 255;\n        const b = 0;\n        color = `#${r.toString(16)}${g.toString(16)}00`;\n        level = aqi <= 75 ? \"Noch gut\" : \"Mäßig\";\n    }\n    else if (aqi <= 150) {\n        const ratio = (aqi - 100) / 50;\n        const r = 255;\n        const g = Math.round(255 - ratio * 129);\n        const b = 0;\n        color = `#ff${g.toString(16).padStart(2, '0')}00`;\n        level = aqi <= 125 ? \"Leicht ungesund\" : \"Ungesund für empfindliche Gruppen\";\n    }\n    else if (aqi <= 200) {\n        const ratio = (aqi - 150) / 50;\n        const r = 255;\n        const g = Math.round(126 - ratio * 126);\n        const b = 0;\n        color = `#ff${g.toString(16).padStart(2, '0')}00`;\n        level = aqi <= 175 ? \"Leicht ungesund\" : \"Ungesund\";\n    }\n    else if (aqi <= 300) {\n        const ratio = (aqi - 200) / 100;\n        const r = Math.round(255 - ratio * 112);\n        const g = 0;\n        const b = Math.round(ratio * 151);\n        color = `#${r.toString(16).padStart(2, '0')}00${b.toString(16).padStart(2, '0')}`;\n        level = aqi <= 250 ? \"Sehr ungesund\" : \"Extrem ungesund\";\n    }\n    else {\n        color = \"#800000\";\n        level = \"Gefährlich\";\n    }\n\n    return { level, color };\n}\n\n// ===== ERWEITERTE AQI BERECHNUNG FÜR ESP32 RESPONSE =====\nnode.log(`ESP32 Request Data: ${JSON.stringify(requestData)}`);\n\nlet pm1_aqi = 0, pm25_aqi = 0, pm10_aqi = 0, co2_aqi = 0, iaq_aqi = 0;\nlet combinedAQI = 0;\nlet dominantPollutant = \"N/A\";\nconst aqiValues = [];\n\n// Berechne AQI für verfügbare Sensoren - mehrere Pfade prüfen\nif (requestData.pm1_0 !== undefined && requestData.pm1_0 >= 0) {\n    pm1_aqi = calculatePM1AQI(requestData.pm1_0);\n    aqiValues.push(pm1_aqi);\n    node.log(`Direct PM1.0: ${requestData.pm1_0} = AQI ${pm1_aqi}`);\n}\n\nif (requestData.pm2_5 !== undefined && requestData.pm2_5 >= 0) {\n    pm25_aqi = calculatePM25AQI(requestData.pm2_5);\n    aqiValues.push(pm25_aqi);\n    node.log(`Direct PM2.5: ${requestData.pm2_5} = AQI ${pm25_aqi}`);\n}\n\nif (requestData.pm10 !== undefined && requestData.pm10 >= 0) {\n    pm10_aqi = calculatePM10AQI(requestData.pm10);\n    aqiValues.push(pm10_aqi);\n    node.log(`Direct PM10: ${requestData.pm10} = AQI ${pm10_aqi}`);\n}\n\nif (requestData.co2 !== undefined && requestData.co2 > 0) {\n    co2_aqi = calculateCO2AQI(requestData.co2);\n    aqiValues.push(co2_aqi);\n    node.log(`Direct CO2: ${requestData.co2} = AQI ${co2_aqi}`);\n}\n\nif (requestData.iaq !== undefined && requestData.iaq > 0) {\n    iaq_aqi = calculateIAQtoAQI(requestData.iaq);\n    aqiValues.push(iaq_aqi);\n    node.log(`Direct IAQ: ${requestData.iaq} = AQI ${iaq_aqi}`);\n}\n\n// Bestimme dominanten Schadstoff und kombinierten AQI\nif (aqiValues.length > 0) {\n    combinedAQI = Math.round(aqiValues.reduce((a, b) => a + b) / aqiValues.length);\n\n    const maxAQI = Math.max(pm1_aqi, pm25_aqi, pm10_aqi, co2_aqi, iaq_aqi);\n    if (maxAQI === pm1_aqi && pm1_aqi > 0) dominantPollutant = \"PM1.0\";\n    else if (maxAQI === pm25_aqi && pm25_aqi > 0) dominantPollutant = \"PM2.5\";\n    else if (maxAQI === pm10_aqi && pm10_aqi > 0) dominantPollutant = \"PM10\";\n    else if (maxAQI === co2_aqi && co2_aqi > 0) dominantPollutant = \"CO2\";\n    else if (maxAQI === iaq_aqi && iaq_aqi > 0) dominantPollutant = \"VOC/Gas\";\n} else {\n    combinedAQI = 25; // Fallback\n    dominantPollutant = \"Sensoren aktiv\";\n}\n\nconst aqiInfo = getAQILevel(combinedAQI);\n\n// JSON Response für ESP32\nconst response = {\n    success: true,\n    timestamp: Date.now(),\n    aqi: {\n        combined: combinedAQI,\n        pm1_0_aqi: pm1_aqi,\n        pm2_5_aqi: pm25_aqi,\n        pm10_aqi: pm10_aqi,\n        co2_aqi: co2_aqi,\n        iaq_aqi: iaq_aqi,\n        level: aqiInfo.level,\n        color: aqiInfo.color,\n        dominant_pollutant: dominantPollutant\n    }\n};\n\nmsg.payload = response;\nnode.log(`Generated AQI response: ${combinedAQI} (${aqiInfo.level}) - Dominant: ${dominantPollutant}`);\n\nreturn msg;",
-        "outputs": 1,
-        "timeout": "",
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 430,
-        "y": 440,
-        "wires": [
-            [
-                "bb5e7e1ed2bf3e22",
-                "33ae93d4e734e94e"
-            ]
-        ]
-    },
-    {
-        "id": "bb5e7e1ed2bf3e22",
-        "type": "http response",
-        "z": "112e45ba1073bfbe",
-        "name": "AQI HTTP Response",
-        "statusCode": "200",
-        "headers": {},
-        "x": 680,
-        "y": 440,
-        "wires": []
-    },
-    {
-        "id": "33ae93d4e734e94e",
-        "type": "debug",
-        "z": "112e45ba1073bfbe",
-        "name": "debug 1",
-        "active": false,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "false",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 570,
-        "y": 540,
-        "wires": []
-    },
-    {
-        "id": "ab4e21793407bab8",
-        "type": "debug",
-        "z": "112e45ba1073bfbe",
-        "name": "debug 3",
-        "active": false,
-        "tosidebar": true,
-        "console": false,
-        "tostatus": false,
-        "complete": "false",
-        "statusVal": "",
-        "statusType": "auto",
-        "x": 390,
-        "y": 580,
-        "wires": []
-    },
-    {
-        "id": "739290d0ef814b48",
-        "type": "influxdb batch",
-        "z": "112e45ba1073bfbe",
-        "influxdb": "",
-        "precision": "",
-        "retentionPolicy": "",
-        "name": "",
-        "database": "database",
-        "precisionV18FluxV20": "ms",
-        "retentionPolicyV18Flux": "",
-        "org": "Abrechen2",
-        "bucket": "EnvSensors",
-        "x": 1260,
-        "y": 300,
-        "wires": []
-    },
-    {
-        "id": "2a6454bcd2c1882e",
-        "type": "global-config",
-        "env": [],
-        "modules": {
-            "node-red-contrib-influxdb": "0.7.0"
-        }
+  {
+    "id": "112e45ba1073bfbe",
+    "type": "tab",
+    "label": "AiQualityMonitorV0.9",
+    "disabled": false,
+    "info": "",
+    "env": []
+  },
+  {
+    "id": "6ad817caf44ce3af",
+    "type": "http in",
+    "z": "112e45ba1073bfbe",
+    "name": "Binary Sensor Data",
+    "url": "/SZ-sensor-data",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 210,
+    "y": 220,
+    "wires": [
+      [
+        "f8753b8f4f0c3180"
+      ]
+    ]
+  },
+  {
+    "id": "f8753b8f4f0c3180",
+    "type": "function",
+    "z": "112e45ba1073bfbe",
+    "name": "Binary Data Decoder",
+    "func": "// Decode 42-byte binary sensor packet (without CCS811)\nconst buffer = msg.payload;\n\nif (!Buffer.isBuffer(buffer) || buffer.length !== 42) {\n    node.error(`Invalid packet size: ${buffer.length}, expected 42 bytes`);\n    return null;\n}\n\n// Parse binary data structure\nlet offset = 0;\n\n// Header (4 bytes)\nconst timestamp = buffer.readUInt32LE(offset); offset += 4;\n\n// BME68X Data (22 bytes)\nconst bme_temperature = buffer.readInt16LE(offset) / 100.0; offset += 2;\nconst bme_humidity = buffer.readUInt16LE(offset) / 100.0; offset += 2;\nconst bme_pressure = buffer.readUInt16LE(offset) / 10.0; offset += 2;\nconst gas_resistance = buffer.readUInt32LE(offset); offset += 4;\nconst iaq = buffer.readUInt16LE(offset) / 10.0; offset += 2;\nconst static_iaq = buffer.readUInt16LE(offset) / 10.0; offset += 2;\nconst co2_equivalent = buffer.readUInt16LE(offset); offset += 2;\nconst breath_voc = buffer.readUInt16LE(offset) / 100.0; offset += 2;\nconst iaq_accuracy = buffer.readUInt8(offset); offset += 1;\nconst co2_accuracy = buffer.readUInt8(offset); offset += 1;\nconst voc_accuracy = buffer.readUInt8(offset); offset += 1;\nconst bme_flags = buffer.readUInt8(offset); offset += 1;\n\n// DS18B20 Data (3 bytes)\nconst ds_temperature = buffer.readInt16LE(offset) / 100.0; offset += 2;\nconst ds_flags = buffer.readUInt8(offset); offset += 1;\n\n// PMS5003 Data (7 bytes)\nconst pm1_0 = buffer.readUInt16LE(offset); offset += 2;\nconst pm2_5 = buffer.readUInt16LE(offset); offset += 2;\nconst pm10 = buffer.readUInt16LE(offset); offset += 2;\nconst pms_flags = buffer.readUInt8(offset); offset += 1;\n\n// System Data (5 bytes)\nconst uptime_seconds = buffer.readUInt32LE(offset); offset += 4;\nconst wifi_rssi = buffer.readInt8(offset); offset += 1;\n\n// Checksum (1 byte)\nconst received_checksum = buffer.readUInt8(offset);\n\n// Verify checksum (all bytes except the last one)\nlet calculated_checksum = 0;\nfor (let i = 0; i < 41; i++) {\n    calculated_checksum ^= buffer[i];\n}\n\nif (calculated_checksum !== received_checksum) {\n    node.warn(`Checksum mismatch: calculated ${calculated_checksum}, received ${received_checksum}`);\n}\n\n// Create standardized data structure\nconst data = {\n    timestamp: timestamp,\n    environment: {\n        main_temperature: bme_temperature,\n        humidity: bme_humidity,\n        pressure: bme_pressure,\n        ds_temperature: ds_temperature\n    },\n    air_quality: {\n        gas_resistance: gas_resistance,\n        iaq: iaq,\n        static_iaq: static_iaq,\n        co2_equivalent: co2_equivalent,\n        breath_voc: breath_voc,\n        iaq_accuracy: iaq_accuracy,\n        co2_accuracy: co2_accuracy,\n        voc_accuracy: voc_accuracy,\n        pm1_0: pm1_0,\n        pm2_5: pm2_5,\n        pm10: pm10\n    },\n    system: {\n        checksum_valid: calculated_checksum === received_checksum,\n        calculated_checksum: calculated_checksum,\n        received_checksum: received_checksum,\n        uptime_seconds: uptime_seconds,\n        wifi_rssi: wifi_rssi,\n        sensors_available: {\n            bme680: (bme_flags & 1) !== 0,\n            ds18b20: (ds_flags & 1) !== 0,\n            pms5003: (pms_flags & 1) !== 0\n        }\n    }\n};\n\nmsg.payload = data;\nnode.log(`Decoded 42-byte packet with timestamp ${timestamp}`);\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 420,
+    "y": 220,
+    "wires": [
+      [
+        "c72fc9cb35d58cbf",
+        "3349332743423fc1"
+      ]
+    ]
+  },
+  {
+    "id": "c72fc9cb35d58cbf",
+    "type": "function",
+    "z": "112e45ba1073bfbe",
+    "name": "AQI Calculator",
+    "func": "const data = msg.payload;\n\n// ===== ERWEITERTE AQI BERECHNUNGEN (nur verfügbare Sensoren) =====\n\n// 1. PM2.5 AQI (PMS5003)\nfunction calculatePM25AQI(pm25) {\n    if (pm25 <= 12) return Math.round((50 / 12) * pm25);\n    if (pm25 <= 35.4) return Math.round(50 + ((100 - 50) / (35.4 - 12.1)) * (pm25 - 12.1));\n    if (pm25 <= 55.4) return Math.round(100 + ((150 - 100) / (55.4 - 35.5)) * (pm25 - 35.5));\n    if (pm25 <= 150.4) return Math.round(150 + ((200 - 150) / (150.4 - 55.5)) * (pm25 - 55.5));\n    if (pm25 <= 250.4) return Math.round(200 + ((300 - 200) / (250.4 - 150.5)) * (pm25 - 150.5));\n    return Math.round(300 + ((500 - 300) / (500.4 - 250.5)) * (pm25 - 250.5));\n}\n\n// 2. PM10 AQI (PMS5003)\nfunction calculatePM10AQI(pm10) {\n    if (pm10 <= 54) return Math.round((50 / 54) * pm10);\n    if (pm10 <= 154) return Math.round(50 + ((100 - 50) / (154 - 55)) * (pm10 - 55));\n    if (pm10 <= 254) return Math.round(100 + ((150 - 100) / (254 - 155)) * (pm10 - 155));\n    if (pm10 <= 354) return Math.round(150 + ((200 - 150) / (354 - 255)) * (pm10 - 255));\n    if (pm10 <= 424) return Math.round(200 + ((300 - 200) / (424 - 355)) * (pm10 - 355));\n    return Math.round(300 + ((500 - 300) / (604 - 425)) * (pm10 - 425));\n}\n\n// 3. PM1.0 AQI (PMS5003 - NEU!)\nfunction calculatePM1AQI(pm1) {\n    if (pm1 <= 8) return Math.round((50 / 8) * pm1);\n    if (pm1 <= 25) return Math.round(50 + ((100 - 50) / (25 - 8)) * (pm1 - 8));\n    if (pm1 <= 40) return Math.round(100 + ((150 - 100) / (40 - 25)) * (pm1 - 25));\n    if (pm1 <= 60) return Math.round(150 + ((200 - 150) / (60 - 40)) * (pm1 - 40));\n    if (pm1 <= 100) return Math.round(200 + ((300 - 200) / (100 - 60)) * (pm1 - 60));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (200 - 100)) * (pm1 - 100)));\n}\n\n// 4. CO2 AQI (BME680)\nfunction calculateCO2AQI(co2) {\n    if (co2 <= 400) return 25;\n    if (co2 <= 600) return Math.round(25 + ((50 - 25) / (600 - 400)) * (co2 - 400));\n    if (co2 <= 800) return Math.round(50 + ((100 - 50) / (800 - 600)) * (co2 - 600));\n    if (co2 <= 1000) return Math.round(100 + ((150 - 100) / (1000 - 800)) * (co2 - 800));\n    if (co2 <= 1500) return Math.round(150 + ((200 - 150) / (1500 - 1000)) * (co2 - 1000));\n    if (co2 <= 2000) return Math.round(200 + ((300 - 200) / (2000 - 1500)) * (co2 - 1500));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (5000 - 2000)) * (co2 - 2000)));\n}\n\n// 5. VOC AQI (BME680)\nfunction calculateVOCAQI(voc_mg_m3) {\n    if (voc_mg_m3 <= 0.3) return 25;\n    if (voc_mg_m3 <= 0.5) return Math.round(25 + ((50 - 25) / (0.5 - 0.3)) * (voc_mg_m3 - 0.3));\n    if (voc_mg_m3 <= 1.0) return Math.round(50 + ((100 - 50) / (1.0 - 0.5)) * (voc_mg_m3 - 0.5));\n    if (voc_mg_m3 <= 2.0) return Math.round(100 + ((150 - 100) / (2.0 - 1.0)) * (voc_mg_m3 - 1.0));\n    if (voc_mg_m3 <= 3.0) return Math.round(150 + ((200 - 150) / (3.0 - 2.0)) * (voc_mg_m3 - 2.0));\n    if (voc_mg_m3 <= 5.0) return Math.round(200 + ((300 - 200) / (5.0 - 3.0)) * (voc_mg_m3 - 3.0));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (25.0 - 5.0)) * (voc_mg_m3 - 5.0)));\n}\n\n// 6. Gas Resistance AQI (BME680)\nfunction calculateGasResistanceAQI(resistance_ohm) {\n    if (resistance_ohm >= 500000) return 25;\n    if (resistance_ohm >= 200000) return Math.round(25 + ((50 - 25) / (500000 - 200000)) * (500000 - resistance_ohm));\n    if (resistance_ohm >= 100000) return Math.round(50 + ((100 - 50) / (200000 - 100000)) * (200000 - resistance_ohm));\n    if (resistance_ohm >= 50000) return Math.round(100 + ((150 - 100) / (100000 - 50000)) * (100000 - resistance_ohm));\n    if (resistance_ohm >= 20000) return Math.round(150 + ((200 - 150) / (50000 - 20000)) * (50000 - resistance_ohm));\n    if (resistance_ohm >= 10000) return Math.round(200 + ((300 - 200) / (20000 - 10000)) * (20000 - resistance_ohm));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (10000 - 1000)) * (10000 - resistance_ohm)));\n}\n\n// 7. IAQ AQI (BME680)\nfunction calculateIAQtoAQI(iaq) {\n    if (iaq <= 50) return Math.round(iaq);\n    if (iaq <= 100) return Math.round(50 + ((100 - 50) / 50) * (iaq - 50));\n    if (iaq <= 150) return Math.round(100 + ((150 - 100) / 50) * (iaq - 100));\n    if (iaq <= 200) return Math.round(150 + ((200 - 150) / 50) * (iaq - 150));\n    if (iaq <= 300) return Math.round(200 + ((300 - 200) / 100) * (iaq - 200));\n    return Math.round(300 + ((500 - 300) / 200) * (iaq - 300));\n}\n\n// 8. Lineare Farbübergänge\nfunction getAQILevel(aqi) {\n    let level, color;\n\n    if (aqi <= 50) {\n        const ratio = aqi / 50;\n        const r = Math.round(ratio * 128);\n        const g = 255;\n        const b = 0;\n        color = `#${r.toString(16).padStart(2, '0')}${g.toString(16)}00`;\n        level = aqi <= 25 ? \"Sehr gut\" : \"Gut\";\n    }\n    else if (aqi <= 100) {\n        const ratio = (aqi - 50) / 50;\n        const r = Math.round(128 + ratio * 127);\n        const g = 255;\n        const b = 0;\n        color = `#${r.toString(16)}${g.toString(16)}00`;\n        level = aqi <= 75 ? \"Noch gut\" : \"Mäßig\";\n    }\n    else if (aqi <= 150) {\n        const ratio = (aqi - 100) / 50;\n        const r = 255;\n        const g = Math.round(255 - ratio * 129);\n        const b = 0;\n        color = `#ff${g.toString(16).padStart(2, '0')}00`;\n        level = aqi <= 125 ? \"Leicht ungesund\" : \"Ungesund für empfindliche Gruppen\";\n    }\n    else if (aqi <= 200) {\n        const ratio = (aqi - 150) / 50;\n        const r = 255;\n        const g = Math.round(126 - ratio * 126);\n        const b = 0;\n        color = `#ff${g.toString(16).padStart(2, '0')}00`;\n        level = aqi <= 175 ? \"Leicht ungesund\" : \"Ungesund\";\n    }\n    else if (aqi <= 300) {\n        const ratio = (aqi - 200) / 100;\n        const r = Math.round(255 - ratio * 112);\n        const g = 0;\n        const b = Math.round(ratio * 151);\n        color = `#${r.toString(16).padStart(2, '0')}00${b.toString(16).padStart(2, '0')}`;\n        level = aqi <= 250 ? \"Sehr ungesund\" : \"Extrem ungesund\";\n    }\n    else {\n        color = \"#800000\";\n        level = \"Gefährlich\";\n    }\n\n    return { level, color };\n}\n\n// ===== BERECHNUNG MIT GEWICHTUNG =====\nnode.log(`=== ERWEITERTE AQI BERECHNUNG (BME680 + PMS5003) ===`);\n\nconst aqiComponents = {};\nconst weights = {};\n\n// PM1.0 AQI\nif (data.air_quality.pm1_0 !== null && data.air_quality.pm1_0 !== undefined && data.air_quality.pm1_0 >= 0) {\n    aqiComponents.pm1_0_aqi = calculatePM1AQI(data.air_quality.pm1_0);\n    weights.pm1_0_aqi = 0.9;\n    node.log(`PM1.0: ${data.air_quality.pm1_0} µg/m³ = AQI ${aqiComponents.pm1_0_aqi}`);\n}\n\n// PM2.5 AQI\nif (data.air_quality.pm2_5 !== null && data.air_quality.pm2_5 !== undefined && data.air_quality.pm2_5 >= 0) {\n    aqiComponents.pm2_5_aqi = calculatePM25AQI(data.air_quality.pm2_5);\n    weights.pm2_5_aqi = 1.0;\n    node.log(`PM2.5: ${data.air_quality.pm2_5} µg/m³ = AQI ${aqiComponents.pm2_5_aqi}`);\n}\n\n// PM10 AQI\nif (data.air_quality.pm10 !== null && data.air_quality.pm10 !== undefined && data.air_quality.pm10 >= 0) {\n    aqiComponents.pm10_aqi = calculatePM10AQI(data.air_quality.pm10);\n    weights.pm10_aqi = 0.8;\n    node.log(`PM10: ${data.air_quality.pm10} µg/m³ = AQI ${aqiComponents.pm10_aqi}`);\n}\n\n// CO2 AQI\nif (data.air_quality.co2_equivalent !== null && data.air_quality.co2_equivalent !== undefined && data.air_quality.co2_equivalent > 0) {\n    aqiComponents.co2_aqi = calculateCO2AQI(data.air_quality.co2_equivalent);\n    weights.co2_aqi = (data.air_quality.co2_accuracy >= 2) ? 0.9 : 0.6;\n    node.log(`CO2: ${data.air_quality.co2_equivalent} ppm = AQI ${aqiComponents.co2_aqi} (accuracy: ${data.air_quality.co2_accuracy})`);\n}\n\n// VOC AQI\nif (data.air_quality.breath_voc !== null && data.air_quality.breath_voc !== undefined && data.air_quality.breath_voc > 0) {\n    aqiComponents.voc_aqi = calculateVOCAQI(data.air_quality.breath_voc);\n    weights.voc_aqi = (data.air_quality.voc_accuracy >= 2) ? 0.8 : 0.5;\n    node.log(`VOC: ${data.air_quality.breath_voc} mg/m³ = AQI ${aqiComponents.voc_aqi} (accuracy: ${data.air_quality.voc_accuracy})`);\n}\n\n// Gas Resistance AQI\nif (data.air_quality.gas_resistance !== null && data.air_quality.gas_resistance !== undefined && data.air_quality.gas_resistance > 0) {\n    aqiComponents.gas_resistance_aqi = calculateGasResistanceAQI(data.air_quality.gas_resistance);\n    weights.gas_resistance_aqi = 0.6;\n    node.log(`Gas Resistance: ${data.air_quality.gas_resistance} Ohm = AQI ${aqiComponents.gas_resistance_aqi}`);\n}\n\n// IAQ AQI\nif (data.air_quality.iaq !== null && data.air_quality.iaq !== undefined && data.air_quality.iaq > 0) {\n    aqiComponents.iaq_aqi = calculateIAQtoAQI(data.air_quality.iaq);\n    weights.iaq_aqi = (data.air_quality.iaq_accuracy >= 2) ? 1.0 : 0.7;\n    node.log(`IAQ: ${data.air_quality.iaq} = AQI ${aqiComponents.iaq_aqi} (accuracy: ${data.air_quality.iaq_accuracy})`);\n}\n\n// ===== GEWICHTETER KOMBINIERTER AQI =====\nlet totalWeightedAQI = 0;\nlet totalWeight = 0;\nlet dominantPollutant = \"N/A\";\nlet maxAQI = 0;\n\nfor (const [component, aqi] of Object.entries(aqiComponents)) {\n    const weight = weights[component] || 0.5;\n    totalWeightedAQI += aqi * weight;\n    totalWeight += weight;\n\n    if (aqi > maxAQI) {\n        maxAQI = aqi;\n        dominantPollutant = component.replace('_aqi', '').toUpperCase();\n    }\n}\n\nconst combinedAQI = totalWeight > 0 ? Math.round(totalWeightedAQI / totalWeight) : 25;\nconst finalAQI = Math.max(25, combinedAQI);\nconst aqiInfo = getAQILevel(finalAQI);\n\ndata.calculated_aqi = {\n    combined: finalAQI,\n    pm1_0_aqi: aqiComponents.pm1_0_aqi || 0,\n    pm2_5_aqi: aqiComponents.pm2_5_aqi || 0,\n    pm10_aqi: aqiComponents.pm10_aqi || 0,\n    co2_aqi: aqiComponents.co2_aqi || 0,\n    voc_aqi: aqiComponents.voc_aqi || 0,\n    gas_resistance_aqi: aqiComponents.gas_resistance_aqi || 0,\n    iaq_aqi: aqiComponents.iaq_aqi || 0,\n    level: aqiInfo.level,\n    color: aqiInfo.color,\n    dominant_pollutant: dominantPollutant,\n    total_components: Object.keys(aqiComponents).length,\n    weighted_average: Math.round(totalWeightedAQI / totalWeight * 100) / 100\n};\n\nnode.log(`=== FINAL AQI: ${finalAQI} (${aqiInfo.level}) ===`);\nnode.log(`Components: ${Object.keys(aqiComponents).length}, Dominant: ${dominantPollutant}`);\n\nmsg.payload = data;\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 720,
+    "y": 180,
+    "wires": [
+      [
+        "b70f226c694df194"
+      ]
+    ]
+  },
+  {
+    "id": "b70f226c694df194",
+    "type": "function",
+    "z": "112e45ba1073bfbe",
+    "name": "Comfort Calculator",
+    "func": "const data = msg.payload;\n\n// Komfort-Berechnungen\nfunction calculateHeatIndex(tempC, humidity) {\n    const tempF = tempC * 9/5 + 32;\n    if (tempF < 80) return tempC;\n    \n    const hi = -42.379 + 2.04901523 * tempF + 10.14333127 * humidity\n             - 0.22475541 * tempF * humidity - 0.00683783 * tempF * tempF\n             - 0.05481717 * humidity * humidity + 0.00122874 * tempF * tempF * humidity\n             + 0.00085282 * tempF * humidity * humidity - 0.00000199 * tempF * tempF * humidity * humidity;\n    \n    return (hi - 32) * 5/9;\n}\n\nfunction calculateDewPoint(tempC, humidity) {\n    const a = 17.27;\n    const b = 237.7;\n    const alpha = ((a * tempC) / (b + tempC)) + Math.log(humidity / 100.0);\n    return (b * alpha) / (a - alpha);\n}\n\nfunction calculateAbsoluteHumidity(tempC, humidity) {\n    const satVaporPressure = 6.112 * Math.exp((17.67 * tempC) / (tempC + 243.5));\n    const vaporPressure = (humidity / 100) * satVaporPressure;\n    return (2.1674 * vaporPressure) / (tempC + 273.15);\n}\n\nfunction assessComfort(temp, humidity, heatIndex) {\n    let score = 1.0;\n    let issues = [];\n    \n    // Temperatur-Bewertung (ideal: 20-24°C)\n    if (temp < 18) { score *= 0.7; issues.push(\"Zu kalt\"); }\n    else if (temp > 26) { score *= 0.8; issues.push(\"Zu warm\"); }\n    else if (temp >= 20 && temp <= 24) { score *= 1.0; }\n    else { score *= 0.9; }\n    \n    // Luftfeuchtigkeit-Bewertung (ideal: 40-60%)\n    if (humidity < 30) { score *= 0.6; issues.push(\"Zu trocken\"); }\n    else if (humidity > 70) { score *= 0.7; issues.push(\"Zu feucht\"); }\n    else if (humidity >= 40 && humidity <= 60) { score *= 1.0; }\n    else { score *= 0.85; }\n    \n    // Heat Index Bewertung\n    if (heatIndex > temp + 2) { score *= 0.8; issues.push(\"Schwül\"); }\n    \n    let level;\n    if (score >= 0.9) level = \"Sehr komfortabel\";\n    else if (score >= 0.7) level = \"Komfortabel\";\n    else if (score >= 0.5) level = \"Mäßig komfortabel\";\n    else if (score >= 0.3) level = \"Unkomfortabel\";\n    else level = \"Sehr unkomfortabel\";\n    \n    return { score: Math.round(score * 100) / 100, level, issues };\n}\n\nif (data.environment.main_temperature !== null && data.environment.humidity !== null) {\n    const temp = data.environment.main_temperature;\n    const humidity = data.environment.humidity;\n    \n    const heatIndex = calculateHeatIndex(temp, humidity);\n    const dewPoint = calculateDewPoint(temp, humidity);\n    const absHumidity = calculateAbsoluteHumidity(temp, humidity);\n    const comfort = assessComfort(temp, humidity, heatIndex);\n    \n    data.comfort = {\n        heat_index: Math.round(heatIndex * 100) / 100,\n        dew_point: Math.round(dewPoint * 100) / 100,\n        absolute_humidity: Math.round(absHumidity * 100) / 100,\n        comfort_assessment: comfort\n    };\n    \n    node.log(`Comfort calculated: ${comfort.level} (Score: ${comfort.score})`);\n}\n\nmsg.payload = data;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 730,
+    "y": 240,
+    "wires": [
+      [
+        "b79be41c24234db2"
+      ]
+    ]
+  },
+  {
+    "id": "b79be41c24234db2",
+    "type": "function",
+    "z": "112e45ba1073bfbe",
+    "name": "Air Quality Classifier",
+    "func": "const data = msg.payload;\n\n// Erweiterte Luftqualitäts-Klassifizierung\nfunction classifyAirQuality(data) {\n    const classifications = {\n        overall: \"Unbekannt\",\n        ventilation_needed: false,\n        recommendations: []\n    };\n    \n    const scores = [];\n    \n    // IAQ Bewertung (0-500, ideal < 100)\n    if (data.air_quality.iaq !== null) {\n        let iaqScore = 1.0;\n        if (data.air_quality.iaq <= 50) iaqScore = 1.0;\n        else if (data.air_quality.iaq <= 100) iaqScore = 0.8;\n        else if (data.air_quality.iaq <= 150) iaqScore = 0.6;\n        else if (data.air_quality.iaq <= 200) iaqScore = 0.4;\n        else if (data.air_quality.iaq <= 250) iaqScore = 0.2;\n        else iaqScore = 0.0;\n        scores.push(iaqScore);\n        \n        if (data.air_quality.iaq > 100) {\n            classifications.ventilation_needed = true;\n            classifications.recommendations.push(\"Lüften empfohlen (hohe VOC-Werte)\");\n        }\n    }\n    \n    // CO2 Bewertung\n    if (data.air_quality.co2_equivalent !== null) {\n        let co2Score = 1.0;\n        if (data.air_quality.co2_equivalent <= 600) co2Score = 1.0;\n        else if (data.air_quality.co2_equivalent <= 800) co2Score = 0.8;\n        else if (data.air_quality.co2_equivalent <= 1000) co2Score = 0.6;\n        else if (data.air_quality.co2_equivalent <= 1500) co2Score = 0.4;\n        else co2Score = 0.2;\n        scores.push(co2Score);\n        \n        if (data.air_quality.co2_equivalent > 800) {\n            classifications.ventilation_needed = true;\n            classifications.recommendations.push(\"Lüften empfohlen (hohe CO2-Werte)\");\n        }\n    }\n    \n    // PM2.5 Bewertung\n    if (data.air_quality.pm2_5 !== null) {\n        let pmScore = 1.0;\n        if (data.air_quality.pm2_5 <= 12) pmScore = 1.0;\n        else if (data.air_quality.pm2_5 <= 25) pmScore = 0.8;\n        else if (data.air_quality.pm2_5 <= 35) pmScore = 0.6;\n        else if (data.air_quality.pm2_5 <= 55) pmScore = 0.4;\n        else pmScore = 0.2;\n        scores.push(pmScore);\n        \n        if (data.air_quality.pm2_5 > 25) {\n            classifications.recommendations.push(\"Luftfilter verwenden (hohe Feinstaub-Werte)\");\n        }\n    }\n    \n    // Luftfeuchtigkeit Bewertung\n    if (data.environment.humidity !== null) {\n        let humScore = 1.0;\n        if (data.environment.humidity >= 40 && data.environment.humidity <= 60) humScore = 1.0;\n        else if (data.environment.humidity >= 30 && data.environment.humidity <= 70) humScore = 0.8;\n        else if (data.environment.humidity >= 20 && data.environment.humidity <= 80) humScore = 0.6;\n        else humScore = 0.4;\n        scores.push(humScore);\n        \n        if (data.environment.humidity > 70) {\n            classifications.recommendations.push(\"Entfeuchtung empfohlen\");\n        } else if (data.environment.humidity < 30) {\n            classifications.recommendations.push(\"Befeuchtung empfohlen\");\n        }\n    }\n    \n    // Gesamtbewertung\n    const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;\n    \n    if (avgScore >= 0.8) classifications.overall = \"Sehr gut\";\n    else if (avgScore >= 0.6) classifications.overall = \"Gut\";\n    else if (avgScore >= 0.4) classifications.overall = \"Mäßig\";\n    else if (avgScore >= 0.2) classifications.overall = \"Schlecht\";\n    else classifications.overall = \"Sehr schlecht\";\n    \n    return classifications;\n}\n\n// Perform classification\ndata.air_quality_classification = classifyAirQuality(data);\n\nnode.log(`Air quality classified as: ${data.air_quality_classification.overall}`);\nif (data.air_quality_classification.ventilation_needed) {\n    node.log(\"Ventilation recommended!\");\n}\n\nmsg.payload = data;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 740,
+    "y": 300,
+    "wires": [
+      [
+        "257ab3be868735c9"
+      ]
+    ]
+  },
+  {
+    "id": "257ab3be868735c9",
+    "type": "function",
+    "z": "112e45ba1073bfbe",
+    "name": "InfluxDB v2 Object Formatter",
+    "func": "const data = msg.payload;\nconst timestamp = Date.now(); // Milliseconds für InfluxDB v2\nconst location = \"Anpassen\";\nconst device_id = \"Anpassen\";\nconst device_type = \"AirQualityMonitor\";\n\n// Helper function to safely get numeric values\nfunction getNumericValue(value, defaultValue = 0) {\n    return (value !== null && value !== undefined && !isNaN(value)) ? Number(value) : defaultValue;\n}\n\n// Helper function to safely get boolean as integer\nfunction getBoolAsInt(value) {\n    return value ? 1 : 0;\n}\n\n// Create comprehensive sensor data object matching your format\nconst influxObject = {\n    measurement: \"air_quality\",\n    tags: {\n        device_id: device_id,\n        location: location,\n        device_type: device_type,\n        data_type: \"environmental\"\n    },\n    fields: {\n        // Temperature und Umgebung\n        temperature_celsius: getNumericValue(data.environment.main_temperature),\n        humidity_percent: getNumericValue(data.environment.humidity),\n        pressure_hpa: getNumericValue(data.environment.pressure),\n        ds_temperature_celsius: getNumericValue(data.environment.ds_temperature),\n\n        // Berechnete Komfort-Werte\n        dew_point_celsius: data.comfort ? getNumericValue(data.comfort.dew_point) : 0,\n        heat_index_celsius: data.comfort ? getNumericValue(data.comfort.heat_index) : 0,\n        absolute_humidity_gm3: data.comfort ? getNumericValue(data.comfort.absolute_humidity) : 0,\n        comfort_index: data.comfort ? getNumericValue(data.comfort.comfort_assessment.score * 100) : 0,\n\n        // Air Quality Index Werte\n        aqi_index: data.calculated_aqi ? getNumericValue(data.calculated_aqi.combined) : 0,\n        aqi_category: data.calculated_aqi ? getNumericValue(data.calculated_aqi.combined <= 50 ? 1 : data.calculated_aqi.combined <= 100 ? 2 : data.calculated_aqi.combined <= 150 ? 3 : data.calculated_aqi.combined <= 200 ? 4 : 5) : 0,\n        pm2_5_aqi: data.calculated_aqi ? getNumericValue(data.calculated_aqi.pm2_5_aqi) : 0,\n        pm10_aqi: data.calculated_aqi ? getNumericValue(data.calculated_aqi.pm10_aqi) : 0,\n        iaq_aqi: data.calculated_aqi ? getNumericValue(data.calculated_aqi.iaq_aqi) : 0,\n\n        // BME68X IAQ Werte\n        iaq_index: getNumericValue(data.air_quality.iaq),\n        static_iaq: getNumericValue(data.air_quality.static_iaq),\n        iaq_accuracy_level: getNumericValue(data.air_quality.iaq_accuracy),\n        gas_resistance_ohm: getNumericValue(data.air_quality.gas_resistance),\n\n        // CO2 und VOC\n        co2_equivalent_ppm: getNumericValue(data.air_quality.co2_equivalent),\n        co2_bme_equivalent_ppm: getNumericValue(data.air_quality.co2_equivalent), // Duplicate für Kompatibilität\n        co2_accuracy_level: getNumericValue(data.air_quality.co2_accuracy),\n        tvoc_ppb: getNumericValue(data.air_quality.breath_voc * 1000), // Convert mg/m³ to ppb (approx)\n        tvoc_mgm3: getNumericValue(data.air_quality.breath_voc),\n        voc_accuracy_level: getNumericValue(data.air_quality.voc_accuracy),\n\n        // Partikel-Sensoren (PMS5003)\n        pm1_0_ugm3: getNumericValue(data.air_quality.pm1_0),\n        pm2_5_ugm3: getNumericValue(data.air_quality.pm2_5),\n        pm10_ugm3: getNumericValue(data.air_quality.pm10),\n\n        // System Status\n        sensor_reliable: getBoolAsInt(data.system.checksum_valid),\n        bme68x_stable: getBoolAsInt(data.air_quality.iaq_accuracy >= 2),\n        bme68x_runin_complete: getBoolAsInt(data.air_quality.iaq_accuracy >= 3),\n        sensors_available_count:\n            getBoolAsInt(data.system.sensors_available.bme680) +\n            getBoolAsInt(data.system.sensors_available.ds18b20) +\n            getBoolAsInt(data.system.sensors_available.pms5003),\n        wifi_rssi_dbm: getNumericValue(data.system.wifi_rssi),\n\n        // Alert Flags (basierend auf Grenzwerten)\n        alert_aqi: getBoolAsInt(data.calculated_aqi && data.calculated_aqi.combined > 100),\n        alert_co2: getBoolAsInt(data.air_quality.co2_equivalent > 1000),\n        alert_pm25: getBoolAsInt(data.air_quality.pm2_5 > 35),\n        alert_tvoc: getBoolAsInt(data.air_quality.breath_voc > 1.0),\n        alert_humidity_low: getBoolAsInt(data.environment.humidity < 30),\n        alert_humidity_high: getBoolAsInt(data.environment.humidity > 70),\n\n        // Ventilation Empfehlung\n        ventilation_needed: data.air_quality_classification ? getBoolAsInt(data.air_quality_classification.ventilation_needed) : 0,\n\n        // Uptime und Timestamp\n        uptime_seconds: getNumericValue(data.system.uptime_seconds),\n        timestamp: timestamp\n    }\n};\n\n// Als Array für InfluxDB Node\nmsg.payload = [influxObject];\nmsg.influx_data = data; // Keep original data for other nodes\n\nnode.log(`Generated InfluxDB v2 object with ${Object.keys(influxObject.fields).length} fields`);\nnode.log(`AQI: ${influxObject.fields.aqi_index}, IAQ: ${influxObject.fields.iaq_index}, CO2: ${influxObject.fields.co2_equivalent_ppm}`);\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1000,
+    "y": 300,
+    "wires": [
+      [
+        "25a7b32395e5a8b1",
+        "739290d0ef814b48"
+      ]
+    ]
+  },
+  {
+    "id": "25a7b32395e5a8b1",
+    "type": "debug",
+    "z": "112e45ba1073bfbe",
+    "name": "Debug InfluxDB Data",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1180,
+    "y": 360,
+    "wires": []
+  },
+  {
+    "id": "3349332743423fc1",
+    "type": "http response",
+    "z": "112e45ba1073bfbe",
+    "name": "Binary Data Response",
+    "statusCode": "200",
+    "headers": {},
+    "x": 420,
+    "y": 280,
+    "wires": []
+  },
+  {
+    "id": "c425bc5235c6a3dc",
+    "type": "http in",
+    "z": "112e45ba1073bfbe",
+    "name": "AQI Request",
+    "url": "/SZ-calculate-aqi",
+    "method": "post",
+    "upload": false,
+    "skipBodyParsing": false,
+    "swaggerDoc": "",
+    "x": 210,
+    "y": 440,
+    "wires": [
+      [
+        "05573a364bb497e3",
+        "ab4e21793407bab8"
+      ]
+    ]
+  },
+  {
+    "id": "05573a364bb497e3",
+    "type": "function",
+    "z": "112e45ba1073bfbe",
+    "name": "AQI Response Generator",
+    "func": "// Generiere AQI Response für ESP32 mit erweiterten Berechnungen\nconst requestData = msg.payload;\n\n// ===== GLEICHE BERECHNUNGSFUNKTIONEN WIE IM AQI CALCULATOR =====\n\nfunction calculatePM25AQI(pm25) {\n    if (pm25 <= 12) return Math.round((50 / 12) * pm25);\n    if (pm25 <= 35.4) return Math.round(50 + ((100 - 50) / (35.4 - 12.1)) * (pm25 - 12.1));\n    if (pm25 <= 55.4) return Math.round(100 + ((150 - 100) / (55.4 - 35.5)) * (pm25 - 35.5));\n    if (pm25 <= 150.4) return Math.round(150 + ((200 - 150) / (150.4 - 55.5)) * (pm25 - 55.5));\n    if (pm25 <= 250.4) return Math.round(200 + ((300 - 200) / (250.4 - 150.5)) * (pm25 - 150.5));\n    return Math.round(300 + ((500 - 300) / (500.4 - 250.5)) * (pm25 - 250.5));\n}\n\nfunction calculatePM10AQI(pm10) {\n    if (pm10 <= 54) return Math.round((50 / 54) * pm10);\n    if (pm10 <= 154) return Math.round(50 + ((100 - 50) / (154 - 55)) * (pm10 - 55));\n    if (pm10 <= 254) return Math.round(100 + ((150 - 100) / (254 - 155)) * (pm10 - 155));\n    if (pm10 <= 354) return Math.round(150 + ((200 - 150) / (354 - 255)) * (pm10 - 255));\n    if (pm10 <= 424) return Math.round(200 + ((300 - 200) / (424 - 355)) * (pm10 - 355));\n    return Math.round(300 + ((500 - 300) / (604 - 425)) * (pm10 - 425));\n}\n\nfunction calculatePM1AQI(pm1) {\n    if (pm1 <= 8) return Math.round((50 / 8) * pm1);\n    if (pm1 <= 25) return Math.round(50 + ((100 - 50) / (25 - 8)) * (pm1 - 8));\n    if (pm1 <= 40) return Math.round(100 + ((150 - 100) / (40 - 25)) * (pm1 - 25));\n    if (pm1 <= 60) return Math.round(150 + ((200 - 150) / (60 - 40)) * (pm1 - 40));\n    if (pm1 <= 100) return Math.round(200 + ((300 - 200) / (100 - 60)) * (pm1 - 60));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (200 - 100)) * (pm1 - 100)));\n}\n\nfunction calculateCO2AQI(co2) {\n    if (co2 <= 400) return 25;\n    if (co2 <= 600) return Math.round(25 + ((50 - 25) / (600 - 400)) * (co2 - 400));\n    if (co2 <= 800) return Math.round(50 + ((100 - 50) / (800 - 600)) * (co2 - 600));\n    if (co2 <= 1000) return Math.round(100 + ((150 - 100) / (1000 - 800)) * (co2 - 800));\n    if (co2 <= 1500) return Math.round(150 + ((200 - 150) / (1500 - 1000)) * (co2 - 1000));\n    if (co2 <= 2000) return Math.round(200 + ((300 - 200) / (2000 - 1500)) * (co2 - 1500));\n    return Math.min(500, Math.round(300 + ((500 - 300) / (5000 - 2000)) * (co2 - 2000)));\n}\n\nfunction calculateIAQtoAQI(iaq) {\n    if (iaq <= 50) return Math.round(iaq);\n    if (iaq <= 100) return Math.round(50 + ((100 - 50) / 50) * (iaq - 50));\n    if (iaq <= 150) return Math.round(100 + ((150 - 100) / 50) * (iaq - 100));\n    if (iaq <= 200) return Math.round(150 + ((200 - 150) / 50) * (iaq - 150));\n    if (iaq <= 300) return Math.round(200 + ((300 - 200) / 100) * (iaq - 200));\n    return Math.round(300 + ((500 - 300) / 200) * (iaq - 300));\n}\n\nfunction getAQILevel(aqi) {\n    let level, color;\n\n    if (aqi <= 50) {\n        const ratio = aqi / 50;\n        const r = Math.round(ratio * 128);\n        const g = 255;\n        const b = 0;\n        color = `#${r.toString(16).padStart(2, '0')}${g.toString(16)}00`;\n        level = aqi <= 25 ? \"Sehr gut\" : \"Gut\";\n    }\n    else if (aqi <= 100) {\n        const ratio = (aqi - 50) / 50;\n        const r = Math.round(128 + ratio * 127);\n        const g = 255;\n        const b = 0;\n        color = `#${r.toString(16)}${g.toString(16)}00`;\n        level = aqi <= 75 ? \"Noch gut\" : \"Mäßig\";\n    }\n    else if (aqi <= 150) {\n        const ratio = (aqi - 100) / 50;\n        const r = 255;\n        const g = Math.round(255 - ratio * 129);\n        const b = 0;\n        color = `#ff${g.toString(16).padStart(2, '0')}00`;\n        level = aqi <= 125 ? \"Leicht ungesund\" : \"Ungesund für empfindliche Gruppen\";\n    }\n    else if (aqi <= 200) {\n        const ratio = (aqi - 150) / 50;\n        const r = 255;\n        const g = Math.round(126 - ratio * 126);\n        const b = 0;\n        color = `#ff${g.toString(16).padStart(2, '0')}00`;\n        level = aqi <= 175 ? \"Leicht ungesund\" : \"Ungesund\";\n    }\n    else if (aqi <= 300) {\n        const ratio = (aqi - 200) / 100;\n        const r = Math.round(255 - ratio * 112);\n        const g = 0;\n        const b = Math.round(ratio * 151);\n        color = `#${r.toString(16).padStart(2, '0')}00${b.toString(16).padStart(2, '0')}`;\n        level = aqi <= 250 ? \"Sehr ungesund\" : \"Extrem ungesund\";\n    }\n    else {\n        color = \"#800000\";\n        level = \"Gefährlich\";\n    }\n\n    return { level, color };\n}\n\n// ===== ERWEITERTE AQI BERECHNUNG FÜR ESP32 RESPONSE =====\nnode.log(`ESP32 Request Data: ${JSON.stringify(requestData)}`);\n\nlet pm1_aqi = 0, pm25_aqi = 0, pm10_aqi = 0, co2_aqi = 0, iaq_aqi = 0;\nlet combinedAQI = 0;\nlet dominantPollutant = \"N/A\";\nconst aqiValues = [];\n\n// Berechne AQI für verfügbare Sensoren - mehrere Pfade prüfen\nif (requestData.pm1_0 !== undefined && requestData.pm1_0 >= 0) {\n    pm1_aqi = calculatePM1AQI(requestData.pm1_0);\n    aqiValues.push(pm1_aqi);\n    node.log(`Direct PM1.0: ${requestData.pm1_0} = AQI ${pm1_aqi}`);\n}\n\nif (requestData.pm2_5 !== undefined && requestData.pm2_5 >= 0) {\n    pm25_aqi = calculatePM25AQI(requestData.pm2_5);\n    aqiValues.push(pm25_aqi);\n    node.log(`Direct PM2.5: ${requestData.pm2_5} = AQI ${pm25_aqi}`);\n}\n\nif (requestData.pm10 !== undefined && requestData.pm10 >= 0) {\n    pm10_aqi = calculatePM10AQI(requestData.pm10);\n    aqiValues.push(pm10_aqi);\n    node.log(`Direct PM10: ${requestData.pm10} = AQI ${pm10_aqi}`);\n}\n\nif (requestData.co2 !== undefined && requestData.co2 > 0) {\n    co2_aqi = calculateCO2AQI(requestData.co2);\n    aqiValues.push(co2_aqi);\n    node.log(`Direct CO2: ${requestData.co2} = AQI ${co2_aqi}`);\n}\n\nif (requestData.iaq !== undefined && requestData.iaq > 0) {\n    iaq_aqi = calculateIAQtoAQI(requestData.iaq);\n    aqiValues.push(iaq_aqi);\n    node.log(`Direct IAQ: ${requestData.iaq} = AQI ${iaq_aqi}`);\n}\n\n// Bestimme dominanten Schadstoff und kombinierten AQI\nif (aqiValues.length > 0) {\n    combinedAQI = Math.round(aqiValues.reduce((a, b) => a + b) / aqiValues.length);\n\n    const maxAQI = Math.max(pm1_aqi, pm25_aqi, pm10_aqi, co2_aqi, iaq_aqi);\n    if (maxAQI === pm1_aqi && pm1_aqi > 0) dominantPollutant = \"PM1.0\";\n    else if (maxAQI === pm25_aqi && pm25_aqi > 0) dominantPollutant = \"PM2.5\";\n    else if (maxAQI === pm10_aqi && pm10_aqi > 0) dominantPollutant = \"PM10\";\n    else if (maxAQI === co2_aqi && co2_aqi > 0) dominantPollutant = \"CO2\";\n    else if (maxAQI === iaq_aqi && iaq_aqi > 0) dominantPollutant = \"VOC/Gas\";\n} else {\n    combinedAQI = 25; // Fallback\n    dominantPollutant = \"Sensoren aktiv\";\n}\n\nconst aqiInfo = getAQILevel(combinedAQI);\n\n// JSON Response für ESP32\nconst response = {\n    success: true,\n    timestamp: Date.now(),\n    aqi: {\n        combined: combinedAQI,\n        pm1_0_aqi: pm1_aqi,\n        pm2_5_aqi: pm25_aqi,\n        pm10_aqi: pm10_aqi,\n        co2_aqi: co2_aqi,\n        iaq_aqi: iaq_aqi,\n        level: aqiInfo.level,\n        color: aqiInfo.color,\n        dominant_pollutant: dominantPollutant\n    }\n};\n\nmsg.payload = response;\nnode.log(`Generated AQI response: ${combinedAQI} (${aqiInfo.level}) - Dominant: ${dominantPollutant}`);\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 430,
+    "y": 440,
+    "wires": [
+      [
+        "bb5e7e1ed2bf3e22",
+        "33ae93d4e734e94e"
+      ]
+    ]
+  },
+  {
+    "id": "bb5e7e1ed2bf3e22",
+    "type": "http response",
+    "z": "112e45ba1073bfbe",
+    "name": "AQI HTTP Response",
+    "statusCode": "200",
+    "headers": {},
+    "x": 680,
+    "y": 440,
+    "wires": []
+  },
+  {
+    "id": "33ae93d4e734e94e",
+    "type": "debug",
+    "z": "112e45ba1073bfbe",
+    "name": "debug 1",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "false",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 570,
+    "y": 540,
+    "wires": []
+  },
+  {
+    "id": "ab4e21793407bab8",
+    "type": "debug",
+    "z": "112e45ba1073bfbe",
+    "name": "debug 3",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "false",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 390,
+    "y": 580,
+    "wires": []
+  },
+  {
+    "id": "739290d0ef814b48",
+    "type": "influxdb batch",
+    "z": "112e45ba1073bfbe",
+    "influxdb": "",
+    "precision": "",
+    "retentionPolicy": "",
+    "name": "",
+    "database": "database",
+    "precisionV18FluxV20": "ms",
+    "retentionPolicyV18Flux": "",
+    "org": "Abrechen2",
+    "bucket": "EnvSensors",
+    "x": 1260,
+    "y": 300,
+    "wires": []
+  },
+  {
+    "id": "2a6454bcd2c1882e",
+    "type": "global-config",
+    "env": [],
+    "modules": {
+      "node-red-contrib-influxdb": "0.7.0"
     }
+  }
 ]
