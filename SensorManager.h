@@ -88,7 +88,7 @@ SensorManager::SensorManager(Bsec& bsec, PMS& pms)
   : bme68x(bsec), pms5003(pms), oneWire(DS18B20_PIN), ds18b20(&oneWire) {}
 
 bool SensorManager::init() {
-  DEBUG_PRINTLN("Initializing sensors...");
+  DEBUG_INFO("Initializing sensors...");
   
   // EEPROM für BSEC State
   EEPROM.begin(BSEC_MAX_STATE_BLOB_SIZE + 10);
@@ -106,7 +106,7 @@ bool SensorManager::init() {
   if (bmeAddress != 0) {
     success &= initBME68X(bmeAddress);
   } else {
-    DEBUG_PRINTLN("BME68X not found");
+    DEBUG_ERROR("BME68X not found");
     currentData.bme68xAvailable = false;
   }
   
@@ -163,13 +163,13 @@ bool SensorManager::scanI2CDevice(uint8_t address) {
 }
 
 bool SensorManager::initBME68X(uint8_t address) {
-  DEBUG_PRINTF("Initializing BME68X with BSEC at 0x%02X...\n", address);
+  DEBUG_INFO("Initializing BME68X with BSEC at 0x%02X...", address);
 
   try {
     bme68x.begin(address, Wire);
 
     if (bme68x.bsecStatus != BSEC_OK || bme68x.bme68xStatus != BME68X_OK) {
-      DEBUG_PRINTF("BME68X init failed at 0x%02X - BSEC: %d, BME68X: %d\n", address, bme68x.bsecStatus, bme68x.bme68xStatus);
+      DEBUG_ERROR("BME68X init failed at 0x%02X - BSEC: %d, BME68X: %d", address, bme68x.bsecStatus, bme68x.bme68xStatus);
       currentData.bme68xAvailable = false;
       return false;
     }
@@ -181,11 +181,11 @@ bool SensorManager::initBME68X(uint8_t address) {
     loadBsecState();
 
     currentData.bme68xAvailable = true;
-    DEBUG_PRINTLN("BME68X with BSEC initialized successfully");
+    DEBUG_INFO("BME68X with BSEC initialized successfully");
     return true;
 
   } catch (...) {
-    DEBUG_PRINTLN("BME68X exception during init");
+    DEBUG_ERROR("BME68X exception during init");
     currentData.bme68xAvailable = false;
     return false;
   }

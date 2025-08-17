@@ -60,13 +60,21 @@ enum StealthMode {
 #define DEBUG_ENABLED 1
 
 #if DEBUG_ENABLED
+  // Basic debug macros
   #define DEBUG_PRINT(x) Serial.print(x)
   #define DEBUG_PRINTLN(x) Serial.println(x)
   #define DEBUG_PRINTF(fmt, ...) Serial.printf(fmt, ##__VA_ARGS__)
+  // Structured logging helpers for clearer output
+  #define DEBUG_INFO(fmt, ...) Serial.printf("[INFO] " fmt "\n", ##__VA_ARGS__)
+  #define DEBUG_WARN(fmt, ...) Serial.printf("[WARN] " fmt "\n", ##__VA_ARGS__)
+  #define DEBUG_ERROR(fmt, ...) Serial.printf("[ERROR] " fmt "\n", ##__VA_ARGS__)
 #else
   #define DEBUG_PRINT(x)
   #define DEBUG_PRINTLN(x)
   #define DEBUG_PRINTF(fmt, ...)
+  #define DEBUG_INFO(fmt, ...)
+  #define DEBUG_WARN(fmt, ...)
+  #define DEBUG_ERROR(fmt, ...)
 #endif
 
 #endif
