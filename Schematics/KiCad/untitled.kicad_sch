@@ -485,7 +485,7 @@
 	)
 	(text "5V+"
 		(exclude_from_sim no)
-		(at 232.156 62.992 0)
+		(at 232.156 56.642 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -496,7 +496,7 @@
 	)
 	(text "5V+"
 		(exclude_from_sim no)
-		(at 205.74 113.03 0)
+		(at 205.74 119.38 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -518,7 +518,7 @@
 	)
 	(text "Data"
 		(exclude_from_sim no)
-		(at 205.486 116.332 0)
+		(at 205.486 116.078 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -712,7 +712,7 @@
 	)
 	(text "GND"
 		(exclude_from_sim no)
-		(at 205.74 119.634 0)
+		(at 205.486 113.03 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -723,7 +723,7 @@
 	)
 	(text "Data"
 		(exclude_from_sim no)
-		(at 231.902 56.134 0)
+		(at 231.648 62.738 0)
 		(effects
 			(font
 				(size 1.27 1.27)
