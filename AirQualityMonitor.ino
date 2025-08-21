@@ -86,9 +86,8 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
-  DEBUG_PRINTLN("=== Air Quality Monitor V6 Starting ===");
-  DEBUG_PRINTLN("BSEC ULP + Byte Transmission + DS18B20 Main Temp");
-  
+  DEBUG_PRINTLN("=== Air Quality Monitor Starting ===");
+ 
   // Initialize hardware
   Wire.begin(DISPLAY_SDA, DISPLAY_SCL);
   Wire.setClock(100000);
@@ -106,13 +105,13 @@ void setup() {
   displayManager.showMessage("System startet...");
   
   // Initialize sensors
-  displayManager.showMessage("Sensoren initialisieren...");
+  displayManager.showMessage("Sensoren init...");
   bool sensorsOK = sensorManager.init();
   
   if (sensorsOK) {
     displayManager.showMessage("Sensoren OK!", 1000);
   } else {
-    displayManager.showMessage("Sensor Warnung!", 2000);
+    displayManager.showMessage("Sensor Warnung!", 5000);
   }
   
   // Connect to WiFi
@@ -125,12 +124,12 @@ void setup() {
     displayManager.showMessage("IP: " + ip, 2000);
     DEBUG_PRINTLN("WiFi connected successfully");
   } else {
-    displayManager.showMessage("Offline Modus", 2000);
+    displayManager.showMessage("Offline Modus", 5000);
     DEBUG_PRINTLN("WiFi connection failed - offline mode");
   }
 
   displayManager.showMessage("System bereit!", 1000);
-  DEBUG_PRINTLN("Setup completed - starting main loop");
+  DEBUG_PRINTLN("Setup completed");
 }
 
 void loop() {
