@@ -174,13 +174,14 @@ bool SensorManager::initBME68X(uint8_t address) {
       return false;
     }
 
+    // Sensor als verfügbar markieren, damit State geladen werden kann
+    currentData.bme68xAvailable = true;
+
     // BSEC Sensoren konfigurieren
     configureBsecSensors();
 
     // Gespeicherten State laden
     loadBsecState();
-
-    currentData.bme68xAvailable = true;
     DEBUG_INFO("BME68X with BSEC initialized successfully");
     return true;
 
@@ -324,7 +325,7 @@ bool SensorManager::readPMS5003() {
 }
 
 void SensorManager::saveBsecState() {
-  if (!currentData.bme68xAvailable) return;
+  if (!currentData.bme68xAvailable || !currentData.bsecCalibrated) return;
   
   uint8_t bsecState[BSEC_MAX_STATE_BLOB_SIZE] = {0};
   uint8_t workBuffer[BSEC_MAX_WORKBUFFER_SIZE] = {0};
@@ -369,9 +370,10 @@ void SensorManager::loadBsecState() {
   }
   
   bsec_library_return_t status = bsec_set_state(bsecState, serializedStateLength, workBuffer, sizeof(workBuffer));
-  
+
   if (status == BSEC_OK) {
     DEBUG_PRINTF("BSEC state loaded (%d bytes)\n", serializedStateLength);
+    currentData.bsecCalibrated = true;
   } else {
     DEBUG_PRINTF("BSEC state load failed: %d\n", status);
   }
