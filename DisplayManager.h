@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <U8g2lib.h>
 #include <Adafruit_NeoPixel.h>
+#include <WiFi.h>
 #include "config.h"
 #include "SensorManager.h"
 #include "TimeUtils.h"
@@ -23,7 +24,7 @@ public:
   DisplayManager(U8G2_SH1106_128X64_NONAME_F_HW_I2C& disp, Adafruit_NeoPixel& strip);
   
   void init();
-  void updateDisplay(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected, bool nodeRedResponding = true);
+    void updateDisplay(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected, bool nodeRedResponding = true);
   void showMessage(const String& message, int duration = 1000);
   
   // View control
@@ -39,12 +40,13 @@ public:
   void resetActivity() { /* Nicht mehr verwendet */ }
   
 private:
-  void drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected);
-  void drawEnvironment(const SensorData& data, bool wifiConnected);
-  void drawParticles(const SensorData& data, float aqi, bool wifiConnected);
-  void drawGas(const SensorData& data, bool wifiConnected);  // NEU
-  void drawSystem(const SensorData& data, bool wifiConnected, bool nodeRedResponding);
-  void drawWiFiIcon(int x, int y, bool connected);
+    void drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool nodeRedResponding);
+    void drawEnvironment(const SensorData& data, bool wifiConnected);
+    void drawParticles(const SensorData& data, float aqi, bool wifiConnected);
+    void drawGas(const SensorData& data, bool wifiConnected);  // NEU
+    void drawSystem(const SensorData& data, bool wifiConnected, bool nodeRedResponding);
+    void drawWiFiIcon(int x, int y, bool connected);
+    void drawNodeRedIcon(int x, int y, bool connected);
   void updateStealthMode();
   void updateDisplayBrightness();
 };
@@ -92,34 +94,34 @@ void DisplayManager::updateDisplay(const SensorData& data, float aqi, const Stri
   
   display.clearBuffer();
   
-  switch (currentView) {
-    case VIEW_OVERVIEW:
-      drawOverview(data, aqi, aqiLevel, wifiConnected);
-      break;
-    case VIEW_ENVIRONMENT:
-      drawEnvironment(data, wifiConnected);
-      break;
-    case VIEW_PARTICLES:
-      drawParticles(data, aqi, wifiConnected);
-      break;
-    case VIEW_GAS:
-      drawGas(data, wifiConnected);
-      break;
-    case VIEW_SYSTEM:
-      drawSystem(data, wifiConnected, nodeRedResponding);
-      break;
-    default:
-      break;
-  }
+    switch (currentView) {
+      case VIEW_OVERVIEW:
+        drawOverview(data, aqi, aqiLevel, nodeRedResponding);
+        break;
+      case VIEW_ENVIRONMENT:
+        drawEnvironment(data, wifiConnected);
+        break;
+      case VIEW_PARTICLES:
+        drawParticles(data, aqi, wifiConnected);
+        break;
+      case VIEW_GAS:
+        drawGas(data, wifiConnected);
+        break;
+      case VIEW_SYSTEM:
+        drawSystem(data, wifiConnected, nodeRedResponding);
+        break;
+      default:
+        break;
+    }
   
   display.sendBuffer();
 }
 
-void DisplayManager::drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected) {
+void DisplayManager::drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool nodeRedResponding) {
   // Header
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, "LUFT MONITOR");
-  drawWiFiIcon(110, 10, wifiConnected);
+  drawNodeRedIcon(110, 10, nodeRedResponding);
   
   // AQI - großer Wert
   display.setFont(u8g2_font_ncenB14_tr);
@@ -292,11 +294,17 @@ void DisplayManager::drawSystem(const SensorData& data, bool wifiConnected, bool
   display.setCursor(0, 45);
   display.printf("Node-RED: %s", nodeRedResponding ? "OK" : "Timeout");
   
-  // Sensor Count
+  // IP-Adresse oder Offline
   display.setCursor(0, 55);
-  display.print("Sensoren:");
+  if (wifiConnected) {
+    display.print(WiFi.localIP().toString().c_str());
+  } else {
+    display.print("Offline");
+  }
+
+  // Sensor Count
   display.setCursor(0, 62);
-  display.printf("%d/3 aktiv", 
+  display.printf("Sens: %d/3",
     (data.bme68xAvailable ? 1 : 0) + (data.ds18b20Available ? 1 : 0) + (data.pms5003Available ? 1 : 0));
 }
 
@@ -312,6 +320,14 @@ void DisplayManager::drawWiFiIcon(int x, int y, bool connected) {
     display.drawPixel(x + 10, y - 3);
   } else {
     // X für keine Verbindung
+    display.drawStr(x, y, "X");
+  }
+}
+
+void DisplayManager::drawNodeRedIcon(int x, int y, bool connected) {
+  if (connected) {
+    display.drawStr(x, y, "NR");
+  } else {
     display.drawStr(x, y, "X");
   }
 }
