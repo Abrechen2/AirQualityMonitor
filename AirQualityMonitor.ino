@@ -140,6 +140,7 @@ void loop() {
   if (sensorManager.update()) {
     SensorData data = sensorManager.getData();
 
+
     AQIResult local = calculateLocalAQI(data);
 
     if (wifiConnected) {
