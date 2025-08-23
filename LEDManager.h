@@ -31,22 +31,22 @@ void LEDManager::init() {
   strip.begin();
   strip.setBrightness(LED_BRIGHTNESS_NORMAL);
   strip.show();
-  DEBUG_PRINTLN("LEDs initialized");
+  DEBUG_INFO("LEDs initialized");
 }
 
 void LEDManager::updateLEDs(uint32_t aqiColor) {
   StealthMode stealthMode = displayManager.getStealthMode();
   
-  // Helligkeit basierend auf Stealth Mode
+  // Brightness based on stealth mode
   uint8_t brightness = getCurrentBrightness();
   strip.setBrightness(brightness);
   
   if (stealthMode == STEALTH_ON) {
-    // Stealth Mode: Nur eine LED mit AQI-Farbe
+    // Stealth mode: only one LED with AQI color
     strip.clear();
-    strip.setPixelColor(0, aqiColor);  // Erste LED
+    strip.setPixelColor(0, aqiColor);  // first LED
   } else {
-    // Normal/Temp Mode: Alle LEDs mit AQI-Farbe
+    // Normal/temp mode: all LEDs with AQI color
     for (int i = 0; i < NUM_LEDS; i++) {
       strip.setPixelColor(i, aqiColor);
     }

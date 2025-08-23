@@ -1,7 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// ===== HARDWARE KONFIGURATION =====
+// ===== HARDWARE CONFIGURATION =====
 #define LED_PIN 5
 #define NUM_LEDS 3
 #define LED_BRIGHTNESS_NORMAL 20
@@ -15,28 +15,28 @@
 #define DISPLAY_CONTRAST_NORMAL 255
 #define DISPLAY_CONTRAST_STEALTH 0
 
-// Sensoren
+// Sensors
 #define PMS_RX_PIN 16
 #define PMS_TX_PIN 17
-#define DS18B20_PIN 27  // GPIO27 (Original-Konfiguration beibehalten)
+#define DS18B20_PIN 27  // GPIO27 (original configuration retained)
 
-// Button - Nur Select verwenden
+// Button - only use select
 #define BUTTON_SELECT_PIN 33
 #define BUTTON_DEBOUNCE_MS 50
 #define BUTTON_LONG_PRESS_MS 2000
 
-// ===== TIMING KONFIGURATION =====
-#define DATA_SEND_INTERVAL 10000      // 10 Sekunden
-#define SENSOR_READ_INTERVAL 3000     // 3 Sekunden (BSEC ULP Mode - besserer Kompromiss)
-#define WIFI_CONNECT_TIMEOUT 15000    // 15 Sekunden
-#define STEALTH_TEMP_ON_MS 20000      // 20 Sekunden temporäre Aktivierung
+// ===== TIMING CONFIGURATION =====
+#define DATA_SEND_INTERVAL 10000      // 10 seconds
+#define SENSOR_READ_INTERVAL 3000     // 3 seconds (BSEC ULP mode compromise)
+#define WIFI_CONNECT_TIMEOUT 15000    // 15 seconds
+#define STEALTH_TEMP_ON_MS 20000      // 20 seconds temporary activation
 
-// ===== SENSOR KONFIGURATION =====
+// ===== SENSOR CONFIGURATION =====
 #define DEFAULT_TEMP_CORRECTION -3.5
 #define DEFAULT_HUMIDITY_CORRECTION 0.0
 
-// BSEC Konfiguration
-#define BSEC_STATE_SAVE_INTERVAL 21600000  // 6 Stunden in ms
+// BSEC configuration
+#define BSEC_STATE_SAVE_INTERVAL 21600000  // 6 hours in ms
 #define BSEC_BASELINE_EEPROM_ADDR 0
 
 // ===== DISPLAY VIEWS =====
@@ -44,7 +44,7 @@ enum DisplayView {
   VIEW_OVERVIEW = 0,
   VIEW_ENVIRONMENT,
   VIEW_PARTICLES,
-  VIEW_GAS,      // NEU: Gas-Sensoren
+  VIEW_GAS,      // Gas sensors
   VIEW_SYSTEM,
   VIEW_COUNT
 };
@@ -53,10 +53,10 @@ enum DisplayView {
 enum StealthMode {
   STEALTH_OFF = 0,
   STEALTH_ON,
-  STEALTH_TEMP_ON  // Temporär eingeschaltet
+  STEALTH_TEMP_ON  // Temporarily enabled
 };
 
-// ===== DEBUG KONFIGURATION =====
+// ===== DEBUG CONFIGURATION =====
 #define DEBUG_ENABLED 1
 
 #if DEBUG_ENABLED
