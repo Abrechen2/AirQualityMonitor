@@ -41,7 +41,7 @@ ByteTransmissionManager byteManager;
 
 // ===== GLOBAL VARIABLES =====
 bool wifiConnected = false;
-bool nodeRedResponding = true;  // Node-RED Response Status
+bool nodeRedResponding = false;  // Node-RED Response Status
 float calculatedAQI = 50.0;
 String aqiLevel = "Gut";
 uint32_t aqiColorCode = 0x00FF00; // Green
@@ -139,28 +139,41 @@ void loop() {
   // Read sensors
   if (sensorManager.update()) {
     SensorData data = sensorManager.getData();
-    
-    AQIResult result = calculateLocalAQI(data);
 
-    if (wifiConnected && byteManager.isTimeToSend()) {
-      AQIResult net = byteManager.sendDataAndGetAQI(data);
-      if (net.success) {
-        result = net;
-        nodeRedResponding = true;
-        DEBUG_PRINTF("Received AQI from Node-RED: %.1f (%s)\n", result.aqi, result.level.c_str());
-      } else {
-        nodeRedResponding = false;
-        DEBUG_PRINTLN("Node-RED timeout or error");
+
+    AQIResult local = calculateLocalAQI(data);
+
+    if (wifiConnected) {
+      if (byteManager.isTimeToSend()) {
+        AQIResult net = byteManager.sendDataAndGetAQI(data);
+        if (net.success) {
+          calculatedAQI = net.aqi;
+          aqiLevel = net.level;
+          aqiColorCode = net.colorCode;
+          nodeRedResponding = true;
+          DEBUG_PRINTF("Received AQI from Node-RED: %.1f (%s)\n", calculatedAQI, aqiLevel.c_str());
+        } else {
+          nodeRedResponding = false;
+          calculatedAQI = local.aqi;
+          aqiLevel = local.level;
+          aqiColorCode = local.colorCode;
+          DEBUG_PRINTLN("Node-RED timeout or error");
+        }
+      } else if (!nodeRedResponding) {
+        calculatedAQI = local.aqi;
+        aqiLevel = local.level;
+        aqiColorCode = local.colorCode;
       }
+    } else {
+      nodeRedResponding = false;
+      calculatedAQI = local.aqi;
+      aqiLevel = local.level;
+      aqiColorCode = local.colorCode;
     }
-
-    calculatedAQI = result.aqi;
-    aqiLevel = result.level;
-    aqiColorCode = result.colorCode;
 
     displayManager.updateDisplay(data, calculatedAQI, aqiLevel, wifiConnected, nodeRedResponding);
     ledManager.updateLEDs(aqiColorCode);
-    
+
     // Debug output for BSEC values
     if (data.bme68xAvailable) {
       DEBUG_PRINTF("BSEC - CO2: %.0f ppm (acc:%d), VOC: %.1f mg/m³ (acc:%d), IAQ: %.0f (acc:%d)\n",
