@@ -41,9 +41,9 @@ ByteTransmissionManager byteManager;
 
 // ===== GLOBAL VARIABLES =====
 bool wifiConnected = false;
-bool nodeRedResponding = false;  // Node-RED Response Status
+bool nodeRedResponding = false;  // Node-RED response status
 float calculatedAQI = 50.0;
-String aqiLevel = "Gut";
+String aqiLevel = "Good";
 uint32_t aqiColorCode = 0x00FF00; // Green
 
 AQIResult calculateLocalAQI(const SensorData& data) {
@@ -53,27 +53,27 @@ AQIResult calculateLocalAQI(const SensorData& data) {
 
   if (pm25 <= 12) {
     aqi = pm25 * 50.0 / 12.0;
-    result.level = F("Gut");
+    result.level = F("Good");
     result.colorCode = 0x00FF00;
   } else if (pm25 <= 35) {
     aqi = (pm25 - 12.1) * (100.0 - 51.0) / (35.4 - 12.1) + 51.0;
-    result.level = F("Mittel");
+    result.level = F("Moderate");
     result.colorCode = 0xFFFF00;
   } else if (pm25 <= 55) {
     aqi = (pm25 - 35.5) * (150.0 - 101.0) / (55.4 - 35.5) + 101.0;
-    result.level = F("Schlecht");
+    result.level = F("Poor");
     result.colorCode = 0xFFA500;
   } else if (pm25 <= 150) {
     aqi = (pm25 - 55.5) * (200.0 - 151.0) / (150.4 - 55.5) + 151.0;
-    result.level = F("Ungesund");
+    result.level = F("Unhealthy");
     result.colorCode = 0xFF0000;
   } else if (pm25 <= 250) {
     aqi = (pm25 - 150.5) * (300.0 - 201.0) / (250.4 - 150.5) + 201.0;
-    result.level = F("Sehr schlecht");
+    result.level = F("Very poor");
     result.colorCode = 0x800080;
   } else {
     aqi = (pm25 - 250.5) * (500.0 - 301.0) / (500.4 - 250.5) + 301.0;
-    result.level = F("Gefährlich");
+    result.level = F("Hazardous");
     result.colorCode = 0x7E0023;
   }
 
@@ -86,7 +86,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
-  DEBUG_PRINTLN("=== Air Quality Monitor Starting ===");
+  DEBUG_INFO("=== Air Quality Monitor starting ===");
  
   // Initialize hardware
   Wire.begin(DISPLAY_SDA, DISPLAY_SCL);
@@ -102,34 +102,34 @@ void setup() {
   buttonHandler.init();
   
   // Show startup messages
-  displayManager.showMessage("System startet...");
-  
+  displayManager.showMessage("System starting...");
+
   // Initialize sensors
-  displayManager.showMessage("Sensoren init...");
+  displayManager.showMessage("Initializing sensors...");
   bool sensorsOK = sensorManager.init();
   
   if (sensorsOK) {
-    displayManager.showMessage("Sensoren OK!", 1000);
+    displayManager.showMessage("Sensors OK!", 1000);
   } else {
-    displayManager.showMessage("Sensor Warnung!", 5000);
-  }
-  
-  // Connect to WiFi
-  displayManager.showMessage("WiFi verbinden...");
-  wifiConnected = byteManager.connectWiFi();
-  
-  if (wifiConnected) {
-    displayManager.showMessage("WiFi verbunden!", 1000);
-    String ip = WiFi.localIP().toString();
-    displayManager.showMessage("IP: " + ip, 2000);
-    DEBUG_PRINTLN("WiFi connected successfully");
-  } else {
-    displayManager.showMessage("Offline Modus", 5000);
-    DEBUG_PRINTLN("WiFi connection failed - offline mode");
+    displayManager.showMessage("Sensor warning!", 5000);
   }
 
-  displayManager.showMessage("System bereit!", 1000);
-  DEBUG_PRINTLN("Setup completed");
+  // Connect to WiFi
+  displayManager.showMessage("Connecting WiFi...");
+  wifiConnected = byteManager.connectWiFi();
+
+  if (wifiConnected) {
+    displayManager.showMessage("WiFi connected!", 1000);
+    String ip = WiFi.localIP().toString();
+    displayManager.showMessage("IP: " + ip, 2000);
+    DEBUG_INFO("WiFi connected successfully");
+  } else {
+    displayManager.showMessage("Offline mode", 5000);
+    DEBUG_WARN("WiFi connection failed - offline mode");
+  }
+
+  displayManager.showMessage("System ready!", 1000);
+  DEBUG_INFO("Setup completed");
 }
 
 void loop() {
@@ -151,13 +151,13 @@ void loop() {
           aqiLevel = net.level;
           aqiColorCode = net.colorCode;
           nodeRedResponding = true;
-          DEBUG_PRINTF("Received AQI from Node-RED: %.1f (%s)\n", calculatedAQI, aqiLevel.c_str());
+          DEBUG_INFO("Received AQI from Node-RED: %.1f (%s)", calculatedAQI, aqiLevel.c_str());
         } else {
           nodeRedResponding = false;
           calculatedAQI = local.aqi;
           aqiLevel = local.level;
           aqiColorCode = local.colorCode;
-          DEBUG_PRINTLN("Node-RED timeout or error");
+          DEBUG_WARN("Node-RED timeout or error");
         }
       } else if (!nodeRedResponding) {
         calculatedAQI = local.aqi;
@@ -176,16 +176,16 @@ void loop() {
 
     // Debug output for BSEC values
     if (data.bme68xAvailable) {
-      DEBUG_PRINTF("BSEC - CO2: %.0f ppm (acc:%d), VOC: %.1f mg/m³ (acc:%d), IAQ: %.0f (acc:%d)\n",
-                   data.co2Equivalent, data.co2Accuracy,
-                   data.breathVocEquivalent, data.breathVocAccuracy,
-                   data.iaq, data.iaqAccuracy);
+      DEBUG_INFO("BSEC - CO2: %.0f ppm (acc:%d), VOC: %.1f mg/m3 (acc:%d), IAQ: %.0f (acc:%d)",
+                 data.co2Equivalent, data.co2Accuracy,
+                 data.breathVocEquivalent, data.breathVocAccuracy,
+                 data.iaq, data.iaqAccuracy);
     }
   }
   
   // Check WiFi connection
   if (wifiConnected && WiFi.status() != WL_CONNECTED) {
-    DEBUG_PRINTLN("WiFi lost - attempting reconnection");
+    DEBUG_WARN("WiFi lost - attempting reconnection");
     wifiConnected = byteManager.connectWiFi();
   }
   

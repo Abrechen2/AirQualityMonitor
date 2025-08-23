@@ -90,7 +90,7 @@ SensorManager::SensorManager(Bsec& bsec, PMS& pms)
 bool SensorManager::init() {
   DEBUG_INFO("Initializing sensors...");
   
-  // EEPROM für BSEC State
+  // EEPROM for BSEC state
   EEPROM.begin(BSEC_MAX_STATE_BLOB_SIZE + 10);
   
   bool success = true;
@@ -132,7 +132,7 @@ bool SensorManager::update() {
     dataUpdated |= readBME68X();
   }
   
-  // DS18B20 lesen (weniger häufig)
+  // Read DS18B20 (less frequently)
   static unsigned long lastDS18B20Read = 0;
   if (currentData.ds18b20Available && (millis() - lastDS18B20Read > 10000)) {
     dataUpdated |= readDS18B20();
@@ -174,10 +174,10 @@ bool SensorManager::initBME68X(uint8_t address) {
       return false;
     }
 
-    // Sensor als verfügbar markieren, damit State geladen werden kann
+    // Mark sensor as available so state can be loaded
     currentData.bme68xAvailable = true;
 
-    // BSEC Sensoren konfigurieren
+    // Configure BSEC sensors
     configureBsecSensors();
 
     // Gespeicherten State laden
@@ -193,7 +193,7 @@ bool SensorManager::initBME68X(uint8_t address) {
 }
 
 void SensorManager::configureBsecSensors() {
-  // Alle verfügbaren BSEC Outputs aktivieren (ULP Mode für bessere Response)
+  // Enable all available BSEC outputs (ULP mode for better response)
   bsec_virtual_sensor_t sensorList[13] = {
     BSEC_OUTPUT_IAQ,
     BSEC_OUTPUT_STATIC_IAQ,
@@ -210,41 +210,41 @@ void SensorManager::configureBsecSensors() {
     BSEC_OUTPUT_GAS_PERCENTAGE
   };
 
-  // ULP Mode: 0.33 Hz für Gas + 0.1 Hz für Temp/Hum - besserer Kompromiss
-  // Verfügbare Modi: BSEC_SAMPLE_RATE_ULP, BSEC_SAMPLE_RATE_LP, BSEC_SAMPLE_RATE_CONT
+  // ULP mode: 0.33 Hz for gas + 0.1 Hz for temp/hum - better compromise
+  // Available modes: BSEC_SAMPLE_RATE_ULP, BSEC_SAMPLE_RATE_LP, BSEC_SAMPLE_RATE_CONT
   bme68x.updateSubscription(sensorList, 13, BSEC_SAMPLE_RATE_ULP);
   
-  DEBUG_PRINTF("BSEC ULP Mode configured - Status: %d\n", bme68x.bsecStatus);
-  DEBUG_PRINTLN("Response Time: ~1.4s (LP Mode), Update Rate: 0.33Hz, Power: ~0.1mA");
+  DEBUG_INFO("BSEC ULP Mode configured - Status: %d", bme68x.bsecStatus);
+  DEBUG_INFO("Response Time: ~1.4s (LP Mode), Update Rate: 0.33Hz, Power: ~0.1mA");
 }
 
 bool SensorManager::initDS18B20() {
-  DEBUG_PRINTLN("Initializing DS18B20...");
+  DEBUG_INFO("Initializing DS18B20...");
   
   try {
     ds18b20.begin();
     
     int deviceCount = ds18b20.getDeviceCount();
     if (deviceCount == 0) {
-      DEBUG_PRINTLN("DS18B20 not found");
+      DEBUG_WARN("DS18B20 not found");
       currentData.ds18b20Available = false;
       return false;
     }
     
     ds18b20.setResolution(12);
     currentData.ds18b20Available = true;
-    DEBUG_PRINTF("DS18B20 found %d device(s)\n", deviceCount);
+    DEBUG_INFO("DS18B20 found %d device(s)", deviceCount);
     return true;
     
   } catch (...) {
-    DEBUG_PRINTLN("DS18B20 exception during init");
+    DEBUG_ERROR("DS18B20 exception during init");
     currentData.ds18b20Available = false;
     return false;
   }
 }
 
 bool SensorManager::initPMS5003() {
-  DEBUG_PRINTLN("Initializing PMS5003...");
+  DEBUG_INFO("Initializing PMS5003...");
   
   try {
     pms5003.passiveMode();
@@ -252,11 +252,11 @@ bool SensorManager::initPMS5003() {
     delay(1000);
     
     currentData.pms5003Available = true;
-    DEBUG_PRINTLN("PMS5003 initialized successfully");
+    DEBUG_INFO("PMS5003 initialized successfully");
     return true;
     
   } catch (...) {
-    DEBUG_PRINTLN("PMS5003 exception during init");
+    DEBUG_ERROR("PMS5003 exception during init");
     currentData.pms5003Available = false;
     return false;
   }
@@ -296,7 +296,7 @@ bool SensorManager::readDS18B20() {
   float temp = ds18b20.getTempCByIndex(0);
   
   if (temp == DEVICE_DISCONNECTED_C) {
-    DEBUG_PRINTLN("DS18B20 read failed");
+    DEBUG_WARN("DS18B20 read failed");
     return false;
   }
   
@@ -318,7 +318,7 @@ bool SensorManager::readPMS5003() {
     pms5003.sleep();
     return true;
   } else {
-    DEBUG_PRINTLN("PMS5003 read failed");
+    DEBUG_WARN("PMS5003 read failed");
     pms5003.sleep();
     return false;      
   }
@@ -334,7 +334,7 @@ void SensorManager::saveBsecState() {
   bsec_library_return_t status = bsec_get_state(0, bsecState, sizeof(bsecState), workBuffer, sizeof(workBuffer), &serializedStateLength);
   
   if (status == BSEC_OK) {
-    // Länge speichern
+    // Store length
     EEPROM.put(BSEC_BASELINE_EEPROM_ADDR, serializedStateLength);
     
     // State speichern
@@ -343,9 +343,9 @@ void SensorManager::saveBsecState() {
     }
     
     EEPROM.commit();
-    DEBUG_PRINTF("BSEC state saved (%d bytes)\n", serializedStateLength);
+    DEBUG_INFO("BSEC state saved (%d bytes)", serializedStateLength);
   } else {
-    DEBUG_PRINTF("BSEC state save failed: %d\n", status);
+    DEBUG_WARN("BSEC state save failed: %d", status);
   }
 }
 
@@ -355,9 +355,9 @@ void SensorManager::loadBsecState() {
   uint32_t serializedStateLength = 0;
   EEPROM.get(BSEC_BASELINE_EEPROM_ADDR, serializedStateLength);
   
-  // Plausibilitätsprüfung
+  // Plausibility check
   if (serializedStateLength == 0 || serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE) {
-    DEBUG_PRINTLN("No valid BSEC state found - starting fresh");
+    DEBUG_WARN("No valid BSEC state found - starting fresh");
     return;
   }
   
@@ -372,22 +372,22 @@ void SensorManager::loadBsecState() {
   bsec_library_return_t status = bsec_set_state(bsecState, serializedStateLength, workBuffer, sizeof(workBuffer));
 
   if (status == BSEC_OK) {
-    DEBUG_PRINTF("BSEC state loaded (%d bytes)\n", serializedStateLength);
+    DEBUG_INFO("BSEC state loaded (%d bytes)", serializedStateLength);
     currentData.bsecCalibrated = true;
   } else {
-    DEBUG_PRINTF("BSEC state load failed: %d\n", status);
+    DEBUG_WARN("BSEC state load failed: %d", status);
   }
 }
 
 void SensorManager::printSensorStatus() {
-  DEBUG_PRINTLN("=== Sensor Status ===");
-  DEBUG_PRINTF("BME68X: %s\n", currentData.bme68xAvailable ? "OK" : "NOT FOUND");
-  DEBUG_PRINTF("DS18B20: %s\n", currentData.ds18b20Available ? "OK" : "NOT FOUND");
-  DEBUG_PRINTF("PMS5003: %s\n", currentData.pms5003Available ? "OK" : "NOT FOUND");
+  DEBUG_INFO("=== Sensor Status ===");
+  DEBUG_INFO("BME68X: %s", currentData.bme68xAvailable ? "OK" : "NOT FOUND");
+  DEBUG_INFO("DS18B20: %s", currentData.ds18b20Available ? "OK" : "NOT FOUND");
+  DEBUG_INFO("PMS5003: %s", currentData.pms5003Available ? "OK" : "NOT FOUND");
   
   if (currentData.bme68xAvailable) {
-    DEBUG_PRINTF("BSEC Status: %d\n", bme68x.bsecStatus);
-    DEBUG_PRINTF("BME68X Status: %d\n", bme68x.bme68xStatus);
+    DEBUG_INFO("BSEC Status: %d", bme68x.bsecStatus);
+    DEBUG_INFO("BME68X Status: %d", bme68x.bme68xStatus);
   }
 }
 
