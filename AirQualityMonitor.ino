@@ -141,7 +141,6 @@ void loop() {
     SensorData data = sensorManager.getData();
     
     AQIResult result = calculateLocalAQI(data);
-    nodeRedResponding = false;
 
     if (wifiConnected && byteManager.isTimeToSend()) {
       AQIResult net = byteManager.sendDataAndGetAQI(data);
@@ -150,6 +149,7 @@ void loop() {
         nodeRedResponding = true;
         DEBUG_PRINTF("Received AQI from Node-RED: %.1f (%s)\n", result.aqi, result.level.c_str());
       } else {
+        nodeRedResponding = false;
         DEBUG_PRINTLN("Node-RED timeout or error");
       }
     }

@@ -44,7 +44,7 @@ private:
     void drawEnvironment(const SensorData& data, bool wifiConnected);
     void drawParticles(const SensorData& data, float aqi, bool wifiConnected);
     void drawGas(const SensorData& data, bool wifiConnected);  // NEU
-    void drawSystem(const SensorData& data, bool wifiConnected, bool nodeRedResponding);
+    void drawSystem(const SensorData& data, bool wifiConnected);
     void drawWiFiIcon(int x, int y, bool connected);
     void drawNodeRedIcon(int x, int y, bool connected);
   void updateStealthMode();
@@ -108,7 +108,7 @@ void DisplayManager::updateDisplay(const SensorData& data, float aqi, const Stri
         drawGas(data, wifiConnected);
         break;
       case VIEW_SYSTEM:
-        drawSystem(data, wifiConnected, nodeRedResponding);
+        drawSystem(data, wifiConnected);
         break;
       default:
         break;
@@ -266,7 +266,7 @@ void DisplayManager::drawGas(const SensorData& data, bool wifiConnected) {
   }
 }
 
-void DisplayManager::drawSystem(const SensorData& data, bool wifiConnected, bool nodeRedResponding) {
+void DisplayManager::drawSystem(const SensorData& data, bool wifiConnected) {
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, "SYSTEM");
   drawWiFiIcon(110, 10, wifiConnected);
@@ -290,12 +290,8 @@ void DisplayManager::drawSystem(const SensorData& data, bool wifiConnected, bool
   display.setCursor(0, 35);
   display.printf("WiFi: %s", wifiConnected ? "OK" : "Fehler");
   
-  // Node-RED Response Status
-  display.setCursor(0, 45);
-  display.printf("Node-RED: %s", nodeRedResponding ? "OK" : "Timeout");
-  
   // IP-Adresse oder Offline
-  display.setCursor(0, 55);
+  display.setCursor(0, 45);
   if (wifiConnected) {
     display.print(WiFi.localIP().toString().c_str());
   } else {
@@ -325,10 +321,15 @@ void DisplayManager::drawWiFiIcon(int x, int y, bool connected) {
 }
 
 void DisplayManager::drawNodeRedIcon(int x, int y, bool connected) {
+  // Draw two nodes connected by a line when Node-RED responds.
+  display.drawCircle(x, y - 3, 2);
+  display.drawCircle(x + 6, y - 3, 2);
+
   if (connected) {
-    display.drawStr(x, y, "NR");
+    display.drawLine(x + 2, y - 3, x + 4, y - 3);
   } else {
-    display.drawStr(x, y, "X");
+    display.drawLine(x + 2, y - 5, x + 4, y - 1);
+    display.drawLine(x + 2, y - 1, x + 4, y - 5);
   }
 }
 
