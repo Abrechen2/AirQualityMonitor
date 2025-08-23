@@ -40,13 +40,14 @@ public:
   void resetActivity() { /* Nicht mehr verwendet */ }
   
 private:
-    void drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool nodeRedResponding);
+    void drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected, bool nodeRedResponding);
     void drawEnvironment(const SensorData& data, bool wifiConnected);
     void drawParticles(const SensorData& data, float aqi, bool wifiConnected);
     void drawGas(const SensorData& data, bool wifiConnected);  // NEU
     void drawSystem(const SensorData& data, bool wifiConnected);
     void drawWiFiIcon(int x, int y, bool connected);
     void drawNodeRedIcon(int x, int y, bool connected);
+    void drawConnectionBar(int x, int y, bool wifiConnected, bool nodeRedResponding);
   void updateStealthMode();
   void updateDisplayBrightness();
 };
@@ -96,7 +97,7 @@ void DisplayManager::updateDisplay(const SensorData& data, float aqi, const Stri
   
     switch (currentView) {
       case VIEW_OVERVIEW:
-        drawOverview(data, aqi, aqiLevel, nodeRedResponding);
+        drawOverview(data, aqi, aqiLevel, wifiConnected, nodeRedResponding);
         break;
       case VIEW_ENVIRONMENT:
         drawEnvironment(data, wifiConnected);
@@ -117,11 +118,11 @@ void DisplayManager::updateDisplay(const SensorData& data, float aqi, const Stri
   display.sendBuffer();
 }
 
-void DisplayManager::drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool nodeRedResponding) {
+void DisplayManager::drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected, bool nodeRedResponding) {
   // Header
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, "LUFT MONITOR");
-  drawNodeRedIcon(110, 10, nodeRedResponding);
+  drawConnectionBar(124, 0, wifiConnected, nodeRedResponding);
   
   // AQI - großer Wert
   display.setFont(u8g2_font_ncenB14_tr);
@@ -330,6 +331,23 @@ void DisplayManager::drawNodeRedIcon(int x, int y, bool connected) {
   } else {
     display.drawLine(x + 2, y - 5, x + 4, y - 1);
     display.drawLine(x + 2, y - 1, x + 4, y - 5);
+  }
+}
+
+void DisplayManager::drawConnectionBar(int x, int y, bool wifiConnected, bool nodeRedResponding) {
+  const uint8_t segmentWidth = 3;
+  const uint8_t segmentHeight = 5;
+
+  if (wifiConnected) {
+    display.drawBox(x, y, segmentWidth, segmentHeight);
+  } else {
+    display.drawFrame(x, y, segmentWidth, segmentHeight);
+  }
+
+  if (nodeRedResponding) {
+    display.drawBox(x, y + segmentHeight + 1, segmentWidth, segmentHeight);
+  } else {
+    display.drawFrame(x, y + segmentHeight + 1, segmentWidth, segmentHeight);
   }
 }
 
