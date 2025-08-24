@@ -22,9 +22,10 @@ private:
   
 public:
   DisplayManager(U8G2_SH1106_128X64_NONAME_F_HW_I2C& disp, Adafruit_NeoPixel& strip);
-  
+
   void init();
-    void updateDisplay(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected, bool nodeRedResponding = true);
+  void updateDisplay(const SensorData& data, float aqi, const String& aqiLevel,
+                     bool wifiConnected, bool nodeRedResponding = true);
   void showMessage(const String& message, int duration = 1000);
   
   // View control
@@ -37,13 +38,13 @@ public:
   DisplayView getCurrentView() { return currentView; }
   StealthMode getStealthMode() { return stealthMode; }
   
-  void resetActivity() { /* Nicht mehr verwendet */ }
+  void resetActivity() { /* no longer used */ }
   
 private:
     void drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected, bool nodeRedResponding);
     void drawEnvironment(const SensorData& data, bool wifiConnected);
     void drawParticles(const SensorData& data, float aqi, bool wifiConnected);
-    void drawGas(const SensorData& data, bool wifiConnected);  // NEU
+    void drawGas(const SensorData& data, bool wifiConnected);
     void drawSystem(const SensorData& data, bool wifiConnected);
     void drawWiFiIcon(int x, int y, bool connected);
     void drawNodeRedIcon(int x, int y, bool connected);
@@ -58,12 +59,12 @@ DisplayManager::DisplayManager(U8G2_SH1106_128X64_NONAME_F_HW_I2C& disp, Adafrui
 }
 
 void DisplayManager::init() {
-  DEBUG_PRINTLN("Initializing display...");
+  DEBUG_INFO("Initializing display...");
   
   // Check if display is available
   Wire.beginTransmission(0x3C);
   if (Wire.endTransmission() != 0) {
-    DEBUG_PRINTLN("Display not available");
+    DEBUG_WARN("Display not available");
     displayEnabled = false;
     return;
   }
@@ -76,7 +77,7 @@ void DisplayManager::init() {
   
   updateDisplayBrightness();
   
-  DEBUG_PRINTLN("Display initialized successfully");
+  DEBUG_INFO("Display initialized successfully");
 }
 
 void DisplayManager::updateDisplay(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected, bool nodeRedResponding) {
@@ -86,7 +87,7 @@ void DisplayManager::updateDisplay(const SensorData& data, float aqi, const Stri
   
   updateStealthMode();
   
-  // Im Stealth Mode: Display aus
+  // In stealth mode: display off
   if (stealthMode == STEALTH_ON) {
     display.clearBuffer();
     display.sendBuffer();
@@ -121,10 +122,13 @@ void DisplayManager::updateDisplay(const SensorData& data, float aqi, const Stri
 void DisplayManager::drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected, bool nodeRedResponding) {
   // Header
   display.setFont(u8g2_font_ncenB08_tr);
-  display.drawStr(0, 10, "LUFT MONITOR");
+  display.drawStr(0, 10, "AIR MONITOR");
   drawConnectionBar(124, 0, wifiConnected, nodeRedResponding);
+  if (data.bsecCalibrated) {
+    display.drawStr(112, 10, "*");
+  }
   
-  // AQI - großer Wert
+  // AQI - large value
   display.setFont(u8g2_font_ncenB14_tr);
   display.setCursor(0, 28);
   display.printf("AQI: %.0f", aqi);
@@ -146,15 +150,11 @@ void DisplayManager::drawOverview(const SensorData& data, float aqi, const Strin
   }
   
   display.setCursor(0, 50);
-  display.printf("Feucht: %.0f%%", data.humidity);
+  display.printf("Hum: %.0f%%", data.humidity);
   
   display.setCursor(0, 60);
   if (data.bme68xAvailable) {
     display.printf("CO2: %.0f ppm", data.co2Equivalent);
-    // Genauigkeits-Indikator
-    if (data.co2Accuracy >= 2) {
-      display.drawStr(120, 60, "*");
-    }
   } else {
     display.print("CO2: N/A");
   }
@@ -168,29 +168,25 @@ void DisplayManager::drawOverview(const SensorData& data, float aqi, const Strin
 
 void DisplayManager::drawEnvironment(const SensorData& data, bool wifiConnected) {
   display.setFont(u8g2_font_ncenB08_tr);
-  display.drawStr(0, 10, "UMGEBUNG");
+  display.drawStr(0, 10, "ENVIRONMENT");
   drawWiFiIcon(110, 10, wifiConnected);
   
   // DS18B20 als Haupttemperatur oben
   display.setCursor(0, 25);
   if (data.ds18b20Available) {
-    display.printf("Haupt-T: %.1f °C", data.externalTemp);
+    display.printf("Main T: %.1f °C", data.externalTemp);
   } else {
-    display.print("Haupt-T: N/A");
+    display.print("Main T: N/A");
   }
   
   // BME68X kompensierte Werte
   display.setCursor(0, 35);
   if (data.bme68xAvailable) {
-    display.printf("BME-T: %.1f °C", data.temperature);
+    display.printf("BME T: %.1f °C", data.temperature);
     display.setCursor(0, 45);
-    display.printf("Feucht: %.1f %%", data.humidity);
+    display.printf("Hum: %.1f %%", data.humidity);
     display.setCursor(0, 55);
-    display.printf("Druck: %.0f hPa", data.pressure);
-    
-    if (data.bsecCalibrated) {
-      display.drawStr(120, 35, "*");
-    }
+    display.printf("Pres: %.0f hPa", data.pressure);
   } else {
     display.print("BME68X: N/A");
   }
@@ -205,7 +201,7 @@ void DisplayManager::drawEnvironment(const SensorData& data, bool wifiConnected)
 
 void DisplayManager::drawParticles(const SensorData& data, float aqi, bool wifiConnected) {
   display.setFont(u8g2_font_ncenB08_tr);
-  display.drawStr(0, 10, "PARTIKEL");
+  display.drawStr(0, 10, "PARTICLES");
   drawWiFiIcon(110, 10, wifiConnected);
   
   if (data.pms5003Available) {
@@ -226,34 +222,30 @@ void DisplayManager::drawParticles(const SensorData& data, float aqi, bool wifiC
 
 void DisplayManager::drawGas(const SensorData& data, bool wifiConnected) {
   display.setFont(u8g2_font_ncenB08_tr);
-  display.drawStr(0, 10, "GAS SENSOREN");
+  display.drawStr(0, 10, "GAS SENSORS");
   drawWiFiIcon(110, 10, wifiConnected);
   
   if (data.bme68xAvailable) {
     // Kalibrierungs-Status ohne ULP-Mode Text
     display.setCursor(0, 22);
-    display.printf("Status: %s", data.bsecCalibrated ? "Kalibriert" : "Lernphase");
+    display.printf("Status: %s", data.bsecCalibrated ? "Calibrated" : "Learning");
     
-    // CO2 äquivalent
+    // CO2 equivalent
     display.setCursor(0, 32);
     display.printf("CO2: %.0f ppm", data.co2Equivalent);
-    if (data.co2Accuracy >= 2) display.drawStr(120, 32, "*");
-    
-    // VOC äquivalent
+
+    // VOC equivalent
     display.setCursor(0, 42);
     display.printf("VOC: %.1f mg/m³", data.breathVocEquivalent);
-    if (data.breathVocAccuracy >= 2) display.drawStr(120, 42, "*");
-    
+
     // IAQ Werte
     display.setCursor(0, 52);
     display.printf("IAQ: %.0f", data.iaq);
-    if (data.iaqAccuracy >= 2) display.drawStr(40, 52, "*");
-    
+
     display.setCursor(60, 52);
     display.printf("S-IAQ: %.0f", data.staticIaq);
-    if (data.staticIaqAccuracy >= 2) display.drawStr(120, 52, "*");
     
-    // Gas Resistance mit besserer Auflösung
+    // Gas resistance with better resolution
     display.setCursor(0, 62);
     if (data.gasResistance > 100000) {
       display.printf("Gas: %.0f kΩ", data.gasResistance / 1000.0);
@@ -289,7 +281,7 @@ void DisplayManager::drawSystem(const SensorData& data, bool wifiConnected) {
   
   // WiFi Status
   display.setCursor(0, 35);
-  display.printf("WiFi: %s", wifiConnected ? "OK" : "Fehler");
+  display.printf("WiFi: %s", wifiConnected ? "OK" : "Error");
   
   // IP-Adresse oder Offline
   display.setCursor(0, 45);
@@ -307,7 +299,7 @@ void DisplayManager::drawSystem(const SensorData& data, bool wifiConnected) {
 
 void DisplayManager::drawWiFiIcon(int x, int y, bool connected) {
   if (connected) {
-    // WiFi Symbol - einfache Bögen
+    // WiFi symbol - simple arcs
     display.drawPixel(x + 7, y);
     display.drawPixel(x + 6, y - 1);
     display.drawPixel(x + 8, y - 1);
@@ -316,7 +308,7 @@ void DisplayManager::drawWiFiIcon(int x, int y, bool connected) {
     display.drawPixel(x + 4, y - 3);
     display.drawPixel(x + 10, y - 3);
   } else {
-    // X für keine Verbindung
+    // X for no connection
     display.drawStr(x, y, "X");
   }
 }
@@ -357,7 +349,7 @@ void DisplayManager::showMessage(const String& message, int duration) {
   display.clearBuffer();
   display.setFont(u8g2_font_ncenB08_tr);
   
-  // Zentrieren
+  // Center text
   int textWidth = display.getUTF8Width(message.c_str());
   int x = (SCREEN_WIDTH - textWidth) / 2;
   
@@ -370,16 +362,16 @@ void DisplayManager::showMessage(const String& message, int duration) {
 }
 
 void DisplayManager::nextView() {
-  // View wechseln funktioniert in Normal und Temp Mode
+  // View switching works in normal and temp mode
   if (stealthMode != STEALTH_ON) {
     int nextView = (int)currentView + 1;
     if (nextView >= VIEW_COUNT) {
       nextView = 0;
     }
     currentView = (DisplayView)nextView;
-    DEBUG_PRINTF("Display view changed to: %d\n", currentView);
+    DEBUG_INFO("Display view changed to: %d", currentView);
   } else {
-    // Im reinen Stealth Mode: temporär aktivieren
+    // In full stealth mode: activate temporarily
     activateStealthTemp();
   }
 }
@@ -387,10 +379,10 @@ void DisplayManager::nextView() {
 void DisplayManager::toggleStealth() {
   if (stealthMode == STEALTH_OFF) {
     stealthMode = STEALTH_ON;
-    DEBUG_PRINTLN("Stealth mode ON - display and LEDs dimmed");
+    DEBUG_INFO("Stealth mode ON - display and LEDs dimmed");
   } else {
     stealthMode = STEALTH_OFF;
-    DEBUG_PRINTLN("Stealth mode OFF - display and LEDs normal");
+    DEBUG_INFO("Stealth mode OFF - display and LEDs normal");
   }
   updateDisplayBrightness();
 }
@@ -400,17 +392,17 @@ void DisplayManager::activateStealthTemp() {
     stealthMode = STEALTH_TEMP_ON;
     stealthTempStartTime = millis();
     updateDisplayBrightness();
-    DEBUG_PRINTLN("Stealth temporarily activated for 20s");
+    DEBUG_INFO("Stealth temporarily activated for 20s");
   }
 }
 
 void DisplayManager::updateStealthMode() {
-  // Temporärer Stealth Mode Timeout
+  // Temporary stealth mode timeout
   if (stealthMode == STEALTH_TEMP_ON) {
     if (millis() - stealthTempStartTime > STEALTH_TEMP_ON_MS) {
       stealthMode = STEALTH_ON;
       updateDisplayBrightness();
-      DEBUG_PRINTLN("Stealth temporary mode ended - back to stealth");
+      DEBUG_INFO("Stealth temporary mode ended - back to stealth");
     }
   }
 }
@@ -419,7 +411,7 @@ void DisplayManager::updateDisplayBrightness() {
   if (!displayEnabled) return;
   
   if (stealthMode == STEALTH_ON) {
-    display.setContrast(DISPLAY_CONTRAST_STEALTH); // Display aus
+    display.setContrast(DISPLAY_CONTRAST_STEALTH); // Display off
   } else {
     display.setContrast(DISPLAY_CONTRAST_NORMAL);  // Display normal
   }

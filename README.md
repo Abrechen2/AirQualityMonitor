@@ -183,8 +183,7 @@ AirQualityMonitor/
 ├── DisplayManager.h         # OLED-Display
 ├── ButtonHandler.h          # Button-Steuerung
 ├── LEDManager.h            # RGB-LED Steuerung
-├── WiFiManager.h           # WiFi-Verbindungsmanagement
-├── ByteTransmission.h      # Binäre Datenübertragung
+├── ByteTransmission.h      # Binary data transmission
 ├── DATENPUNKTE.md          # Dokumentation der Datenpunkte
 ├── LICENSE                 # MIT-Lizenz
 └── README.md               # Diese Datei

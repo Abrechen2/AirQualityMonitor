@@ -10,7 +10,7 @@
 #include "TimeUtils.h"
 
 // ===== BYTE TRANSMISSION PROTOCOL =====
-// Kompaktes Binärformat für minimale Datenübertragung
+// Compact binary format for minimal data transfer
 
 #pragma pack(push, 1)  // Keine Padding-Bytes
 
@@ -42,7 +42,7 @@ struct SensorDataPacket {
   uint16_t pm10;                // µg/m³
   uint8_t pms_flags;            // Bit 0: available
   
-  // System Data (5 bytes) - zurück zu Sekunden
+  // System data (5 bytes) - back to seconds
   uint32_t uptime_seconds;      // Sekunden seit Start (4 bytes)
   int8_t wifi_rssi;             // dBm (1 byte)
   
@@ -53,11 +53,11 @@ struct SensorDataPacket {
 
 #pragma pack(pop)
 
-// ===== AQI RESULT STRUCTURE (unverändert) =====
+// ===== AQI RESULT STRUCTURE =====
 struct AQIResult {
   bool success = false;
   float aqi = 50.0;
-  String level = "Gut";
+  String level = "Good";
   uint32_t colorCode = 0x00FF00;
 };
 
@@ -87,24 +87,21 @@ ByteTransmissionManager::ByteTransmissionManager() {
 
 bool ByteTransmissionManager::connectWiFi() {
   DEBUG_INFO("Connecting to WiFi...");
-  
+
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  
+
   unsigned long startTime = millis();
-  while (WiFi.status() != WL_CONNECTED && 
+  while (WiFi.status() != WL_CONNECTED &&
          (millis() - startTime) < WIFI_CONNECT_TIMEOUT) {
     delay(500);
-    DEBUG_PRINT(".");
   }
-  
+
   if (WiFi.status() == WL_CONNECTED) {
-    DEBUG_PRINTLN();
     DEBUG_INFO("WiFi connected: %s", WiFi.localIP().toString().c_str());
     DEBUG_INFO("RSSI: %d dBm", WiFi.RSSI());
     return true;
   } else {
-    DEBUG_PRINTLN();
     DEBUG_ERROR("WiFi connection failed");
     return false;
   }
@@ -117,7 +114,7 @@ bool ByteTransmissionManager::isTimeToSend() {
 AQIResult ByteTransmissionManager::sendDataAndGetAQI(const SensorData& data) {
   AQIResult result;
   
-  // Binäre Sensordaten an Node-RED senden
+  // Send binary sensor data to Node-RED
   SensorDataPacket packet = createPacket(data);
   if (sendBinaryData(packet)) {
     // AQI von Node-RED abrufen (weiterhin JSON)
@@ -178,7 +175,7 @@ uint8_t ByteTransmissionManager::calculateChecksum(const SensorDataPacket& packe
   uint8_t checksum = 0;
   const uint8_t* bytes = (const uint8_t*)&packet;
   
-  // Alle Bytes außer Checksumme XOR-en
+  // XOR all bytes except checksum
   for (size_t i = 0; i < sizeof(SensorDataPacket) - 1; i++) {
     checksum ^= bytes[i];
   }
@@ -195,7 +192,7 @@ bool ByteTransmissionManager::sendBinaryData(const SensorDataPacket& packet) {
   
   DEBUG_INFO("Sending binary packet (%d bytes)", sizeof(SensorDataPacket));
   
-  // Binäre Daten senden
+  // Send binary data
   int httpResponseCode = http.POST((uint8_t*)&packet, sizeof(SensorDataPacket));
   
   bool success = false;
@@ -210,7 +207,7 @@ bool ByteTransmissionManager::sendBinaryData(const SensorDataPacket& packet) {
   return success;
 }
 
-// KORRIGIERTER ESP32 CODE für getCalculatedAQI:
+// Corrected ESP32 code for getCalculatedAQI:
 AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   AQIResult result;
   
@@ -219,7 +216,7 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(3000);
   
-  // Kleine JSON-Anfrage für AQI-Berechnung
+  // Small JSON request for AQI calculation
   String request = "{\"pm2_5\":" + String(data.pm2_5) + 
                    ",\"pm10\":" + String(data.pm10) + 
                    ",\"iaq\":" + String(data.iaq) + 
@@ -230,7 +227,7 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   
   if (httpResponseCode >= 200 && httpResponseCode < 300) {
     String response = http.getString();
-    DEBUG_PRINTF("Full AQI Response: %s\n", response.c_str());
+    DEBUG_INFO("Full AQI response: %s", response.c_str());
     
     // KORRIGIERT: Suche nach dem nested "combined" Wert
     int combinedPos = response.indexOf("\"combined\":");
@@ -246,7 +243,7 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
       result.aqi = aqiStr.toFloat();
       result.success = true;
       
-      DEBUG_PRINTF("Extracted AQI: %s -> %.1f\n", aqiStr.c_str(), result.aqi);
+      DEBUG_INFO("Extracted AQI: %s -> %.1f", aqiStr.c_str(), result.aqi);
     }
     
     if (levelPos > 0) {
@@ -262,7 +259,7 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
       result.colorCode = parseColorCode(colorStr);
     }
     
-    DEBUG_PRINTF("Final parsed AQI: %.1f (%s)\n", result.aqi, result.level.c_str());
+    DEBUG_INFO("Final parsed AQI: %.1f (%s)", result.aqi, result.level.c_str());
   } else {
     DEBUG_ERROR("AQI request failed, HTTP: %d", httpResponseCode);
   }
@@ -278,10 +275,10 @@ uint32_t ByteTransmissionManager::parseColorCode(const String& colorStr) {
   }
   
   // Fallback-Farben
-  if (colorStr.indexOf("Gut") >= 0) return 0x00FF00;
-  if (colorStr.indexOf("Mäßig") >= 0) return 0xFFFF00;
-  if (colorStr.indexOf("Ungesund") >= 0) return 0xFF0000;
-  
+  if (colorStr.indexOf("Good") >= 0) return 0x00FF00;
+  if (colorStr.indexOf("Moderate") >= 0) return 0xFFFF00;
+  if (colorStr.indexOf("Unhealthy") >= 0) return 0xFF0000;
+
   return 0x00FF00; // Default green
 }
 

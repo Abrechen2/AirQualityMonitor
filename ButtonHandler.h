@@ -42,7 +42,7 @@ void ButtonHandler::init() {
   pinMode(BUTTON_SELECT_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(BUTTON_SELECT_PIN), selectISR, FALLING);
   
-  DEBUG_PRINTLN("Select Button initialized with interrupt");
+  DEBUG_INFO("Select button initialized with interrupt");
 }
 
 void ButtonHandler::update() {
@@ -74,18 +74,18 @@ void ButtonHandler::handleSelectButtonShort() {
   if (currentStealth == STEALTH_OFF) {
     // Normal Mode: View wechseln
     displayManager.nextView();
-    DEBUG_PRINTLN("Select short: View switched");
+    DEBUG_INFO("Select short: view switched");
   } else {
-    // Stealth Mode: temporär aktivieren
+    // Stealth mode: activate temporarily
     displayManager.activateStealthTemp();
-    DEBUG_PRINTLN("Select short: Stealth temp activated");
+    DEBUG_INFO("Select short: stealth temp activated");
   }
 }
 
 void ButtonHandler::handleSelectButtonLong() {
   // Stealth Mode Toggle
   displayManager.toggleStealth();
-  DEBUG_PRINTLN("Select long: Stealth mode toggled");
+  DEBUG_INFO("Select long: stealth mode toggled");
 }
 
 #endif
