@@ -78,7 +78,7 @@ AQIResult calculateLocalAQI(const SensorData& data) {
   }
 
   result.aqi = aqi;
-  result.success = false;
+  result.success = true;
   return result;
 }
 

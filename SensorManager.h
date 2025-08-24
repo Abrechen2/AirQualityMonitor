@@ -12,7 +12,7 @@
 
 // ===== SENSOR DATA STRUCTURE =====
 struct SensorData {
-  // BME68X/BSEC Daten
+  // BME68X/BSEC data
   float temperature = 0.0;
   float humidity = 0.0;
   float pressure = 0.0;
@@ -28,11 +28,11 @@ struct SensorData {
   bool bsecCalibrated = false;
   bool bme68xAvailable = false;
   
-  // DS18B20 Daten
+  // DS18B20 data
   float externalTemp = 0.0;
   bool ds18b20Available = false;
   
-  // PMS5003 Daten
+  // PMS5003 data
   uint16_t pm1_0 = 0;
   uint16_t pm2_5 = 0;
   uint16_t pm10 = 0;
@@ -53,7 +53,7 @@ private:
   unsigned long lastSensorRead = 0;
   unsigned long lastStateTime = 0;
   
-  // Sensor-Korrekturen
+  // Sensor corrections
   float tempCorrection = DEFAULT_TEMP_CORRECTION;
   float humidityCorrection = DEFAULT_HUMIDITY_CORRECTION;
 
@@ -95,7 +95,7 @@ bool SensorManager::init() {
   
   bool success = true;
   
-  // BME68X initialisieren
+  // Initialize BME68X
   uint8_t bmeAddress = 0;
   if (scanI2CDevice(BME68X_I2C_ADDR_HIGH)) {
     bmeAddress = BME68X_I2C_ADDR_HIGH;
@@ -110,10 +110,10 @@ bool SensorManager::init() {
     currentData.bme68xAvailable = false;
   }
   
-  // DS18B20 initialisieren
+  // Initialize DS18B20
   success &= initDS18B20();
   
-  // PMS5003 initialisieren
+  // Initialize PMS5003
   success &= initPMS5003();
   
   printSensorStatus();
@@ -127,7 +127,7 @@ bool SensorManager::update() {
   
   bool dataUpdated = false;
   
-  // BME68X lesen
+  // Read BME68X
   if (currentData.bme68xAvailable) {
     dataUpdated |= readBME68X();
   }
@@ -139,12 +139,12 @@ bool SensorManager::update() {
     lastDS18B20Read = millis();
   }
   
-  // PMS5003 lesen
+  // Read PMS5003
   if (currentData.pms5003Available) {
     dataUpdated |= readPMS5003();
   }
   
-  // BSEC State alle 6h speichern
+  // Save BSEC state every 6h
   if (currentData.bme68xAvailable && (millis() - lastStateTime > BSEC_STATE_SAVE_INTERVAL)) {
     saveBsecState();
     lastStateTime = millis();
@@ -180,7 +180,7 @@ bool SensorManager::initBME68X(uint8_t address) {
     // Configure BSEC sensors
     configureBsecSensors();
 
-    // Gespeicherten State laden
+    // Load stored state
     loadBsecState();
     DEBUG_INFO("BME68X with BSEC initialized successfully");
     return true;
@@ -267,13 +267,13 @@ bool SensorManager::readBME68X() {
     return false;
   }
   
-  // Kompensierte Werte von BSEC
+  // Compensated values from BSEC
   currentData.temperature = bme68x.temperature + tempCorrection;
   currentData.humidity = bme68x.humidity + humidityCorrection;
   currentData.pressure = bme68x.pressure / 100.0; // hPa
   currentData.gasResistance = bme68x.gasResistance;
   
-  // BSEC Gas-Algorithmus Outputs
+  // BSEC gas algorithm outputs
   currentData.iaq = bme68x.iaq;
   currentData.iaqAccuracy = bme68x.iaqAccuracy;
   currentData.staticIaq = bme68x.staticIaq;
@@ -283,7 +283,7 @@ bool SensorManager::readBME68X() {
   currentData.breathVocEquivalent = bme68x.breathVocEquivalent;
   currentData.breathVocAccuracy = bme68x.breathVocAccuracy;
   
-  // Kalibrierungs-Status
+  // Calibration status
   currentData.bsecCalibrated = (currentData.iaqAccuracy >= 2);
   
   return true;
@@ -337,7 +337,7 @@ void SensorManager::saveBsecState() {
     // Store length
     EEPROM.put(BSEC_BASELINE_EEPROM_ADDR, serializedStateLength);
     
-    // State speichern
+    // Save state
     for (uint32_t i = 0; i < serializedStateLength; i++) {
       EEPROM.write(BSEC_BASELINE_EEPROM_ADDR + 4 + i, bsecState[i]);
     }
@@ -364,7 +364,7 @@ void SensorManager::loadBsecState() {
   uint8_t bsecState[BSEC_MAX_STATE_BLOB_SIZE] = {0};
   uint8_t workBuffer[BSEC_MAX_WORKBUFFER_SIZE] = {0};
   
-  // State laden
+  // Load state
   for (uint32_t i = 0; i < serializedStateLength; i++) {
     bsecState[i] = EEPROM.read(BSEC_BASELINE_EEPROM_ADDR + 4 + i);
   }

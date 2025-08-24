@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 #include "config.h"
 #include "secrets.h"
 #include "SensorManager.h"
@@ -12,16 +13,16 @@
 // ===== BYTE TRANSMISSION PROTOCOL =====
 // Compact binary format for minimal data transfer
 
-#pragma pack(push, 1)  // Keine Padding-Bytes
+#pragma pack(push, 1)  // No padding bytes
 
 struct SensorDataPacket {
   // Header (4 bytes)
   uint32_t timestamp;           // Unix timestamp
   
-  // BME68X Data (24 bytes)
-  int16_t bme_temperature;      // °C * 100 (z.B. 2350 = 23.50°C)
-  uint16_t bme_humidity;        // % * 100 (z.B. 4520 = 45.20%)
-  uint16_t bme_pressure;        // hPa * 10 (z.B. 10132 = 1013.2 hPa)
+  // BME68X Data (22 bytes)
+  int16_t bme_temperature;      // °C * 100 (e.g., 2350 = 23.50°C)
+  uint16_t bme_humidity;        // % * 100 (e.g., 4520 = 45.20%)
+  uint16_t bme_pressure;        // hPa * 10 (e.g., 10132 = 1013.2 hPa)
   uint32_t gas_resistance;      // Ohm
   uint16_t iaq;                 // IAQ * 10
   uint16_t static_iaq;          // Static IAQ * 10
@@ -42,14 +43,14 @@ struct SensorDataPacket {
   uint16_t pm10;                // µg/m³
   uint8_t pms_flags;            // Bit 0: available
   
-  // System data (5 bytes) - back to seconds
-  uint32_t uptime_seconds;      // Sekunden seit Start (4 bytes)
+  // System data (5 bytes)
+  uint32_t uptime_seconds;      // Seconds since start (4 bytes)
   int8_t wifi_rssi;             // dBm (1 byte)
   
-  // Checksumme (1 byte)
-  uint8_t checksum;             // XOR aller Bytes
+  // Checksum (1 byte)
+  uint8_t checksum;             // XOR of all bytes
 };
-// TOTAL: 4+24+3+7+5+1 = 44 bytes
+// TOTAL: 4+22+3+7+5+1 = 42 bytes
 
 #pragma pack(pop)
 
@@ -117,7 +118,7 @@ AQIResult ByteTransmissionManager::sendDataAndGetAQI(const SensorData& data) {
   // Send binary sensor data to Node-RED
   SensorDataPacket packet = createPacket(data);
   if (sendBinaryData(packet)) {
-    // AQI von Node-RED abrufen (weiterhin JSON)
+    // Retrieve AQI from Node-RED (JSON)
     result = getCalculatedAQI(data);
     lastSendTime = millis();
   }
@@ -130,8 +131,8 @@ SensorDataPacket ByteTransmissionManager::createPacket(const SensorData& data) {
   
   // Header
   packet.timestamp = (uint32_t)(getUptimeMillis() / 1000);  // Unix-like since start
-  
-  // BME68X Daten
+
+  // BME68X data
   if (data.bme68xAvailable) {
     packet.bme_temperature = (int16_t)(data.temperature * 100);
     packet.bme_humidity = (uint16_t)(data.humidity * 100);
@@ -147,13 +148,13 @@ SensorDataPacket ByteTransmissionManager::createPacket(const SensorData& data) {
     packet.bme_flags = (data.bme68xAvailable ? 1 : 0) | (data.bsecCalibrated ? 2 : 0);
   }
   
-  // DS18B20 Daten
+  // DS18B20 data
   if (data.ds18b20Available) {
     packet.ds_temperature = (int16_t)(data.externalTemp * 100);
     packet.ds_flags = 1;  // Available
   }
   
-  // PMS5003 Daten
+  // PMS5003 data
   if (data.pms5003Available) {
     packet.pm1_0 = data.pm1_0;
     packet.pm2_5 = data.pm2_5;
@@ -161,11 +162,11 @@ SensorDataPacket ByteTransmissionManager::createPacket(const SensorData& data) {
     packet.pms_flags = 1;  // Available
   }
   
-  // System Daten
+  // System data
   packet.uptime_seconds = (uint32_t)(getUptimeMillis() / 1000);  // Seconds since start
   packet.wifi_rssi = (int8_t)WiFi.RSSI();
-  
-  // Checksumme berechnen
+
+  // Calculate checksum
   packet.checksum = calculateChecksum(packet);
   
   return packet;
@@ -207,7 +208,6 @@ bool ByteTransmissionManager::sendBinaryData(const SensorDataPacket& packet) {
   return success;
 }
 
-// Corrected ESP32 code for getCalculatedAQI:
 AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   AQIResult result;
   
@@ -217,53 +217,41 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   http.setTimeout(3000);
   
   // Small JSON request for AQI calculation
-  String request = "{\"pm2_5\":" + String(data.pm2_5) + 
-                   ",\"pm10\":" + String(data.pm10) + 
-                   ",\"iaq\":" + String(data.iaq) + 
-                   ",\"co2\":" + String(data.co2Equivalent) + 
+  String request = "{\"pm2_5\":" + String(data.pm2_5) +
+                   ",\"pm10\":" + String(data.pm10) +
+                   ",\"iaq\":" + String(data.iaq) +
+                   ",\"co2\":" + String(data.co2Equivalent) +
                    ",\"calibrated\":" + (data.bsecCalibrated ? "true" : "false") + "}";
-  
+
   int httpResponseCode = http.POST(request);
-  
+
   if (httpResponseCode >= 200 && httpResponseCode < 300) {
     String response = http.getString();
     DEBUG_INFO("Full AQI response: %s", response.c_str());
-    
-    // KORRIGIERT: Suche nach dem nested "combined" Wert
-    int combinedPos = response.indexOf("\"combined\":");
-    int levelPos = response.indexOf("\"level\":\"");
-    int colorPos = response.indexOf("\"color\":\"");
-    
-    if (combinedPos > 0) {
-      int start = combinedPos + 11; // "combined": hat 11 Zeichen
-      int end = response.indexOf(',', start);
-      if (end == -1) end = response.indexOf('}', start);
-      
-      String aqiStr = response.substring(start, end);
-      result.aqi = aqiStr.toFloat();
-      result.success = true;
-      
-      DEBUG_INFO("Extracted AQI: %s -> %.1f", aqiStr.c_str(), result.aqi);
+
+    StaticJsonDocument<256> doc;
+    DeserializationError error = deserializeJson(doc, response);
+
+    if (!error) {
+      JsonObject aqi = doc["aqi"];
+      if (!aqi.isNull()) {
+        result.aqi = aqi["combined"].as<float>();
+        if (aqi.containsKey("level")) {
+          result.level = String((const char*)aqi["level"]);
+        }
+        if (aqi.containsKey("color")) {
+          result.colorCode = parseColorCode(String((const char*)aqi["color"]));
+        }
+        result.success = true;
+        DEBUG_INFO("Final parsed AQI: %.1f (%s)", result.aqi, result.level.c_str());
+      }
+    } else {
+      DEBUG_ERROR("JSON parse failed: %s", error.c_str());
     }
-    
-    if (levelPos > 0) {
-      int start = levelPos + 9;
-      int end = response.indexOf('\"', start);
-      result.level = response.substring(start, end);
-    }
-    
-    if (colorPos > 0) {
-      int start = colorPos + 9;
-      int end = response.indexOf('\"', start);
-      String colorStr = response.substring(start, end);
-      result.colorCode = parseColorCode(colorStr);
-    }
-    
-    DEBUG_INFO("Final parsed AQI: %.1f (%s)", result.aqi, result.level.c_str());
   } else {
     DEBUG_ERROR("AQI request failed, HTTP: %d", httpResponseCode);
   }
-  
+
   http.end();
   return result;
 }
@@ -274,7 +262,7 @@ uint32_t ByteTransmissionManager::parseColorCode(const String& colorStr) {
     return (uint32_t)color;
   }
   
-  // Fallback-Farben
+  // Fallback colors
   if (colorStr.indexOf("Good") >= 0) return 0x00FF00;
   if (colorStr.indexOf("Moderate") >= 0) return 0xFFFF00;
   if (colorStr.indexOf("Unhealthy") >= 0) return 0xFF0000;

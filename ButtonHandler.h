@@ -72,7 +72,7 @@ void ButtonHandler::handleSelectButtonShort() {
   StealthMode currentStealth = displayManager.getStealthMode();
 
   if (currentStealth == STEALTH_OFF) {
-    // Normal Mode: View wechseln
+    // Normal mode: switch view
     displayManager.nextView();
     DEBUG_INFO("Select short: view switched");
   } else {
