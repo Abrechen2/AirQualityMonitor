@@ -73,9 +73,10 @@ Dieses Projekt implementiert eine komplette Luftqualitätsmonitoringstation mit:
 ```
 BME680:  SDA → GPIO21, SCL → GPIO22
 PMS5003: RX → GPIO16, TX → GPIO17
-DS18B20: Data → GPIO4
+DS18B20: Data → GPIO27
 OLED:    SDA → GPIO21, SCL → GPIO22
 LEDs:    Data → GPIO5
+Button:  Select → GPIO33
 ```
 
 ### 2. Software-Requirements
@@ -172,6 +173,15 @@ Header (4B) + BME680 (24B) + DS18B20 (3B) + PMS5003 (7B) + System (5B) + Checksu
 - **Nach 24h**: Genauigkeit = 2 (verwendbar)
 - **Nach 7 Tagen**: Genauigkeit = 3 (optimal)
 
+## 📐 Schaltplan & Layout
+
+Im Verzeichnis [Schematics](Schematics) befinden sich alle KiCad-Dateien des Projekts.
+Der Unterordner `Schematics/KiCad` enthält das komplette KiCad-Projekt (`AirQualityMonitor.kicad_pro`, `.kicad_pcb`, `.kicad_sch`).
+Zur schnellen Ansicht ohne KiCad stehen folgende PDFs bereit:
+
+- [MainPCB-Schematic.pdf](Schematics/MainPCB-Schematic.pdf) – Schaltplan
+- [MainPCB-Layout.pdf](Schematics/MainPCB-Layout.pdf) – Leiterplattenlayout
+
 ## 📁 Projektstruktur
 
 ```
@@ -185,6 +195,8 @@ AirQualityMonitor/
 ├── LEDManager.h            # RGB-LED Steuerung
 ├── ByteTransmission.h      # Binary data transmission
 ├── DATENPUNKTE.md          # Dokumentation der Datenpunkte
+├── Schematics/             # KiCad-Projekt und PDFs
+├── NodeRed/                # Node-RED Flows
 ├── LICENSE                 # MIT-Lizenz
 └── README.md               # Diese Datei
 ```

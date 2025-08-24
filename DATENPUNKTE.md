@@ -252,22 +252,43 @@ if (scanI2CDevice(BME68X_I2C_ADDR_HIGH)) {
 
 #### **Header (4 Bytes)**
 ```cpp
-uint16_t packet_id = 0xAA55;    // Sync-Pattern
-uint8_t version = 1;            // Protokoll-Version  
-uint8_t packet_type = 0x01;     // Sensor-Daten
+uint32_t timestamp;           // Sekunden seit Start
 ```
 
-#### **BME680 Block (24 Bytes)**
+#### **BME68X Block (24 Bytes)**
 ```cpp
-int16_t temperature_x100;       // °C * 100
-uint16_t humidity_x100;         // % * 100  
-uint16_t pressure_x10;          // hPa * 10
-uint32_t gas_resistance;        // Ω
-int16_t iaq_x100;              // IAQ * 100
-int16_t static_iaq_x100;       // Static IAQ * 100
-uint16_t co2_equivalent;        // ppm
-uint16_t breath_voc_x100;       // mg/m³ * 100
-uint8_t bme_flags;             // Verfügbarkeit + Kalibrierung
+int16_t bme_temperature;      // °C * 100
+uint16_t bme_humidity;        // % * 100
+uint16_t bme_pressure;        // hPa * 10
+uint32_t gas_resistance;      // Ω
+uint16_t iaq;                 // IAQ * 10
+uint16_t static_iaq;          // Static IAQ * 10
+uint16_t co2_equivalent;      // ppm
+uint16_t breath_voc;          // mg/m³ * 100
+uint8_t iaq_accuracy;         // 0-3
+uint8_t co2_accuracy;         // 0-3
+uint8_t voc_accuracy;         // 0-3
+uint8_t bme_flags;            // Verfügbarkeit + Kalibrierung
+```
+
+#### **DS18B20 Block (3 Bytes)**
+```cpp
+int16_t ds_temperature;       // °C * 100
+uint8_t ds_flags;             // Bit 0: verfügbar
+```
+
+#### **PMS5003 Block (7 Bytes)**
+```cpp
+uint16_t pm1_0;               // µg/m³
+uint16_t pm2_5;               // µg/m³
+uint16_t pm10;                // µg/m³
+uint8_t pms_flags;            // Bit 0: verfügbar
+```
+
+#### **System Block (5 Bytes)**
+```cpp
+uint32_t uptime_seconds;      // Sekunden seit Start
+int8_t wifi_rssi;             // dBm
 ```
 
 #### **Komprimierungs-Algorithmus**
@@ -275,11 +296,18 @@ uint8_t bme_flags;             // Verfügbarkeit + Kalibrierung
 // Temperatur: -40°C bis +85°C → int16 (-4000 bis +8500)
 packet.temperature = (int16_t)(data.temperature * 100);
 
-// Luftfeuchtigkeit: 0-100% → uint16 (0 bis 10000)  
+// Luftfeuchtigkeit: 0-100% → uint16 (0 bis 10000)
 packet.humidity = (uint16_t)(data.humidity * 100);
 
 // Druck: 300-1100 hPa → uint16 (3000 bis 11000)
 packet.pressure = (uint16_t)(data.pressure * 10);
+
+// IAQ: 0-500 → uint16 (0 bis 5000)
+packet.iaq = (uint16_t)(data.iaq * 10);
+packet.static_iaq = (uint16_t)(data.staticIaq * 10);
+
+// TVOC: 0-60 mg/m³ → uint16 (0 bis 6000)
+packet.breath_voc = (uint16_t)(data.breathVocEquivalent * 100);
 ```
 
 ### Checksumme-Validierung
