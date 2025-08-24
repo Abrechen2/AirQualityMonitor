@@ -124,6 +124,9 @@ void DisplayManager::drawOverview(const SensorData& data, float aqi, const Strin
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, "AIR MONITOR");
   drawConnectionBar(124, 0, wifiConnected, nodeRedResponding);
+  if (data.bsecCalibrated) {
+    display.drawStr(112, 10, "*");
+  }
   
   // AQI - large value
   display.setFont(u8g2_font_ncenB14_tr);
@@ -152,10 +155,6 @@ void DisplayManager::drawOverview(const SensorData& data, float aqi, const Strin
   display.setCursor(0, 60);
   if (data.bme68xAvailable) {
     display.printf("CO2: %.0f ppm", data.co2Equivalent);
-    // Genauigkeits-Indikator
-    if (data.co2Accuracy >= 2) {
-      display.drawStr(120, 60, "*");
-    }
   } else {
     display.print("CO2: N/A");
   }
@@ -188,10 +187,6 @@ void DisplayManager::drawEnvironment(const SensorData& data, bool wifiConnected)
     display.printf("Hum: %.1f %%", data.humidity);
     display.setCursor(0, 55);
     display.printf("Pres: %.0f hPa", data.pressure);
-    
-    if (data.bsecCalibrated) {
-      display.drawStr(120, 35, "*");
-    }
   } else {
     display.print("BME68X: N/A");
   }
@@ -238,21 +233,17 @@ void DisplayManager::drawGas(const SensorData& data, bool wifiConnected) {
     // CO2 equivalent
     display.setCursor(0, 32);
     display.printf("CO2: %.0f ppm", data.co2Equivalent);
-    if (data.co2Accuracy >= 2) display.drawStr(120, 32, "*");
-    
+
     // VOC equivalent
     display.setCursor(0, 42);
     display.printf("VOC: %.1f mg/m³", data.breathVocEquivalent);
-    if (data.breathVocAccuracy >= 2) display.drawStr(120, 42, "*");
-    
+
     // IAQ Werte
     display.setCursor(0, 52);
     display.printf("IAQ: %.0f", data.iaq);
-    if (data.iaqAccuracy >= 2) display.drawStr(40, 52, "*");
-    
+
     display.setCursor(60, 52);
     display.printf("S-IAQ: %.0f", data.staticIaq);
-    if (data.staticIaqAccuracy >= 2) display.drawStr(120, 52, "*");
     
     // Gas resistance with better resolution
     display.setCursor(0, 62);
