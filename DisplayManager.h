@@ -138,13 +138,13 @@ void DisplayManager::drawOverview(const SensorData& data, float aqi, const Strin
   display.setCursor(80, 28);
   display.print(aqiLevel.c_str());
   
-  // Hauptwerte - DS18B20 als Haupttemperatur
+  // Main values - DS18B20 as primary temperature
   display.setFont(u8g2_font_ncenB08_tr);
   display.setCursor(0, 40);
   if (data.ds18b20Available) {
-    display.printf("Temp: %.1f°C", data.externalTemp);  // DS18B20 als Haupttemperatur
+    display.printf("Temp: %.1f°C", data.externalTemp);  // DS18B20 as primary temperature
   } else if (data.bme68xAvailable) {
-    display.printf("Temp: %.1f°C", data.temperature);   // Fallback BME680
+    display.printf("Temp: %.1f°C", data.temperature);   // BME680 fallback
   } else {
     display.print("Temp: N/A");
   }
@@ -159,7 +159,7 @@ void DisplayManager::drawOverview(const SensorData& data, float aqi, const Strin
     display.print("CO2: N/A");
   }
   
-  // PM2.5 rechts
+  // PM2.5 on the right
   display.setCursor(80, 40);
   display.printf("PM2.5:");
   display.setCursor(80, 50);
@@ -171,7 +171,7 @@ void DisplayManager::drawEnvironment(const SensorData& data, bool wifiConnected)
   display.drawStr(0, 10, "ENVIRONMENT");
   drawWiFiIcon(110, 10, wifiConnected);
   
-  // DS18B20 als Haupttemperatur oben
+  // DS18B20 as main temperature on top
   display.setCursor(0, 25);
   if (data.ds18b20Available) {
     display.printf("Main T: %.1f °C", data.externalTemp);
@@ -179,7 +179,7 @@ void DisplayManager::drawEnvironment(const SensorData& data, bool wifiConnected)
     display.print("Main T: N/A");
   }
   
-  // BME68X kompensierte Werte
+  // BME68X compensated values
   display.setCursor(0, 35);
   if (data.bme68xAvailable) {
     display.printf("BME T: %.1f °C", data.temperature);
@@ -191,7 +191,7 @@ void DisplayManager::drawEnvironment(const SensorData& data, bool wifiConnected)
     display.print("BME68X: N/A");
   }
   
-  // Temperatur-Differenz anzeigen
+  // Display temperature difference
   if (data.bme68xAvailable && data.ds18b20Available) {
     float tempDiff = data.externalTemp - data.temperature;
     display.setCursor(0, 62);
@@ -226,7 +226,7 @@ void DisplayManager::drawGas(const SensorData& data, bool wifiConnected) {
   drawWiFiIcon(110, 10, wifiConnected);
   
   if (data.bme68xAvailable) {
-    // Kalibrierungs-Status ohne ULP-Mode Text
+    // Calibration status without ULP mode text
     display.setCursor(0, 22);
     display.printf("Status: %s", data.bsecCalibrated ? "Calibrated" : "Learning");
     
@@ -264,7 +264,7 @@ void DisplayManager::drawSystem(const SensorData& data, bool wifiConnected) {
   display.drawStr(0, 10, "SYSTEM");
   drawWiFiIcon(110, 10, wifiConnected);
   
-  // Uptime formatiert
+  // Formatted uptime
   display.setCursor(0, 25);
   uint64_t uptimeSeconds = getUptimeMillis() / 1000;
   unsigned long days = uptimeSeconds / 86400;

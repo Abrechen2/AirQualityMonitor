@@ -2,13 +2,13 @@
 #ifndef SECRETS_H
 #define SECRETS_H
 
-// ===== WIFI KONFIGURATION =====
-#define WIFI_SSID "SSID"
-#define WIFI_PASSWORD "IHR_PASSWORT_HIER_EINTRAGEN"
+// ===== WIFI CONFIGURATION =====
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_PASSWORD"
 
-// ===== NODE-RED ENDPUNKTE =====
-#define NODERED_SEND_URL "http://IHR_SERVER:1880/sensor-data"
-#define NODERED_AQI_URL "http://IHR_SERVER:1880/calculate-aqi"
+// ===== NODE-RED ENDPOINTS =====
+#define NODERED_SEND_URL "http://YOUR_SERVER:1880/sensor-data"
+#define NODERED_AQI_URL "http://YOUR_SERVER:1880/calculate-aqi"
 
 
 #endif
