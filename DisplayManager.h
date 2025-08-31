@@ -120,27 +120,26 @@ void DisplayManager::updateDisplay(const SensorData& data, float aqi, const Stri
 }
 
 void DisplayManager::drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected, bool nodeRedResponding) {
-  // Header
+  // Status indicators
   display.setFont(u8g2_font_ncenB08_tr);
-  display.drawStr(0, 10, "AIR MONITOR");
   drawConnectionBar(124, 0, wifiConnected, nodeRedResponding);
   if (data.bsecCalibrated) {
-    display.drawStr(112, 10, "*");
+    display.drawStr(112, 8, "*");
   }
-  
+
   // AQI - large value
   display.setFont(u8g2_font_ncenB14_tr);
-  display.setCursor(0, 28);
+  display.setCursor(0, 24);
   display.printf("AQI: %.0f", aqi);
-  
-  // AQI Level
+
+  // AQI Level from Node-RED
   display.setFont(u8g2_font_ncenB08_tr);
-  display.setCursor(80, 28);
+  display.setCursor(0, 34);
   display.print(aqiLevel.c_str());
-  
+
   // Main values - DS18B20 as primary temperature
   display.setFont(u8g2_font_ncenB08_tr);
-  display.setCursor(0, 40);
+  display.setCursor(0, 44);
   if (data.ds18b20Available) {
     display.printf("Temp: %.1f°C", data.externalTemp);  // DS18B20 as primary temperature
   } else if (data.bme68xAvailable) {
@@ -148,21 +147,21 @@ void DisplayManager::drawOverview(const SensorData& data, float aqi, const Strin
   } else {
     display.print("Temp: N/A");
   }
-  
-  display.setCursor(0, 50);
+
+  display.setCursor(0, 54);
   display.printf("Hum: %.0f%%", data.humidity);
-  
-  display.setCursor(0, 60);
+
+  display.setCursor(0, 63);
   if (data.bme68xAvailable) {
     display.printf("CO2: %.0f ppm", data.co2Equivalent);
   } else {
     display.print("CO2: N/A");
   }
-  
+
   // PM2.5 on the right
-  display.setCursor(80, 40);
+  display.setCursor(80, 44);
   display.printf("PM2.5:");
-  display.setCursor(80, 50);
+  display.setCursor(80, 54);
   display.printf("%d µg/m³", data.pm2_5);
 }
 
