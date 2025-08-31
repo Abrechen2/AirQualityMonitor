@@ -11,9 +11,10 @@ private:
   DisplayManager& displayManager;
 
   static volatile bool selectFlag;
+  static volatile unsigned long lastInterruptTime;
+  static portMUX_TYPE selectMux;
   static void IRAM_ATTR selectISR();
 
-  unsigned long lastSelectEvent = 0;
   unsigned long selectPressTime = 0;
   bool selectWaitingRelease = false;
 
@@ -29,10 +30,18 @@ private:
 
 // ===== STATIC MEMBER INITIALIZATION =====
 volatile bool ButtonHandler::selectFlag = false;
+volatile unsigned long ButtonHandler::lastInterruptTime = 0;
+portMUX_TYPE ButtonHandler::selectMux = portMUX_INITIALIZER_UNLOCKED;
 
 // ===== ISR DEFINITION =====
 void IRAM_ATTR ButtonHandler::selectISR() {
-  selectFlag = true;
+  unsigned long interruptTime = millis();
+  if (interruptTime - lastInterruptTime > BUTTON_DEBOUNCE_MS) {
+    portENTER_CRITICAL_ISR(&selectMux);
+    selectFlag = true;
+    lastInterruptTime = interruptTime;
+    portEXIT_CRITICAL_ISR(&selectMux);
+  }
 }
 
 // ===== IMPLEMENTATION =====
@@ -48,14 +57,14 @@ void ButtonHandler::init() {
 void ButtonHandler::update() {
   unsigned long currentTime = millis();
 
-  // Select button handling
-  if (selectFlag) {
-    selectFlag = false;
-    if (currentTime - lastSelectEvent > BUTTON_DEBOUNCE_MS) {
-      lastSelectEvent = currentTime;
-      selectPressTime = currentTime;
-      selectWaitingRelease = true;
-    }
+  portENTER_CRITICAL(&selectMux);
+  bool flagCopy = selectFlag;
+  selectFlag = false;
+  portEXIT_CRITICAL(&selectMux);
+
+  if (flagCopy) {
+    selectPressTime = currentTime;
+    selectWaitingRelease = true;
   }
 
   if (selectWaitingRelease && digitalRead(BUTTON_SELECT_PIN) == HIGH) {

@@ -306,22 +306,22 @@ bool SensorManager::readDS18B20() {
 
 bool SensorManager::readPMS5003() {
   pms5003.wakeUp();
-  delay(3000); // PMS5003 wake up time
-  
-  pms5003.requestRead();
-  
-  if (pms5003.readUntil(pmsData)) {
-    currentData.pm1_0 = pmsData.PM_AE_UG_1_0;
-    currentData.pm2_5 = pmsData.PM_AE_UG_2_5;
-    currentData.pm10 = pmsData.PM_AE_UG_10_0;
-    
-    pms5003.sleep();
-    return true;
-  } else {
-    DEBUG_WARN("PMS5003 read failed");
-    pms5003.sleep();
-    return false;      
+  delay(2000); // PMS5003 wake up time optimised
+
+  for (int i = 0; i < 3; i++) {
+    pms5003.requestRead();
+    if (pms5003.readUntil(pmsData, 1000)) {
+      currentData.pm1_0 = pmsData.PM_AE_UG_1_0;
+      currentData.pm2_5 = pmsData.PM_AE_UG_2_5;
+      currentData.pm10 = pmsData.PM_AE_UG_10_0;
+      pms5003.sleep();
+      return true;
+    }
   }
+
+  DEBUG_WARN("PMS5003 read failed after 3 attempts");
+  pms5003.sleep();
+  return false;
 }
 
 void SensorManager::saveBsecState() {
@@ -334,14 +334,24 @@ void SensorManager::saveBsecState() {
   bsec_library_return_t status = bsec_get_state(0, bsecState, sizeof(bsecState), workBuffer, sizeof(workBuffer), &serializedStateLength);
   
   if (status == BSEC_OK) {
+    if (serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE - 4) {
+      DEBUG_ERROR("BSEC state too large: %d bytes", serializedStateLength);
+      return;
+    }
+
+    if (BSEC_BASELINE_EEPROM_ADDR + 4 + serializedStateLength > EEPROM.length()) {
+      DEBUG_ERROR("EEPROM overflow prevented");
+      return;
+    }
+
     // Store length
     EEPROM.put(BSEC_BASELINE_EEPROM_ADDR, serializedStateLength);
-    
+
     // Save state
     for (uint32_t i = 0; i < serializedStateLength; i++) {
       EEPROM.write(BSEC_BASELINE_EEPROM_ADDR + 4 + i, bsecState[i]);
     }
-    
+
     EEPROM.commit();
     DEBUG_INFO("BSEC state saved (%d bytes)", serializedStateLength);
   } else {
