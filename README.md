@@ -1,4 +1,4 @@
-# 🌪️ ESP32 Air Quality Monitor v0.9
+# 🌪️ ESP32 Air Quality Monitor v1.0.0
 
 ![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen)
 
@@ -205,7 +205,6 @@ AirQualityMonitor/
 
 - **BSEC State Backup**: Automatisch alle 6h im EEPROM
 - **Sensor-Kalibrierung**: Kontinuierlich während Betrieb
-- **OTA Updates**: Über WiFi möglich (optional)
 
 ## 🤝 Beitragen
 
@@ -220,7 +219,7 @@ Contributions sind willkommen! Bitte:
 ## 👨‍💻 Autor
 
 **Abrechen2**  
-Version 0.9 - Complete Stealth & Gas Sensor Integration + Byte Transmission
+Version 1.0.0 - Complete Stealth & Gas Sensor Integration + Byte Transmission
 
 ## 📄 Lizenz
 
@@ -235,6 +234,5 @@ Bei Fragen oder Problemen:
 
 ---
 
-**⚠️ Wichtiger Hinweis**: Stelle sicher, dass `secrets.h` niemals ins Repository committed wird, um deine Zugangsdaten zu schützen!
 
 *Für detaillierte Informationen zu den Datenpunkten siehe [DATENPUNKTE.md](DATENPUNKTE.md)*
