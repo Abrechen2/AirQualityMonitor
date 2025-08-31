@@ -219,6 +219,7 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   const char* headerKeys[] = {"Content-Length"};
   http.collectHeaders(headerKeys, 1);
 
+
   // Build JSON request safely
   StaticJsonDocument<256> doc;
   doc["pm2_5"] = data.pm2_5;
