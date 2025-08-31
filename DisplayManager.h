@@ -208,7 +208,7 @@ void DisplayManager::drawEnvironment(const SensorData& data, bool wifiConnected)
 void DisplayManager::drawParticles(const SensorData& data, float aqi, bool wifiConnected) {
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, "PARTICLES");
-  drawWiFiIcon(110, 10, wifiConnected);
+  drawWiFiIcon(115, 10, wifiConnected);
   
   if (data.pms5003Available) {
     display.setCursor(0, 25);
