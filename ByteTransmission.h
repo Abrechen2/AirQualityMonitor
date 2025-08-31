@@ -210,22 +210,36 @@ bool ByteTransmissionManager::sendBinaryData(const SensorDataPacket& packet) {
 
 AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   AQIResult result;
-  
+
   HTTPClient http;
   http.begin(NODERED_AQI_URL);
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(3000);
-  
-  // Small JSON request for AQI calculation
-  String request = "{\"pm2_5\":" + String(data.pm2_5) +
-                   ",\"pm10\":" + String(data.pm10) +
-                   ",\"iaq\":" + String(data.iaq) +
-                   ",\"co2\":" + String(data.co2Equivalent) +
-                   ",\"calibrated\":" + (data.bsecCalibrated ? "true" : "false") + "}";
+  http.setReuse(false);
+  const char* headerKeys[] = {"Content-Length"};
+  http.collectHeaders(headerKeys, 1);
+
+
+  // Build JSON request safely
+  StaticJsonDocument<256> doc;
+  doc["pm2_5"] = data.pm2_5;
+  doc["pm10"] = data.pm10;
+  doc["iaq"] = data.iaq;
+  doc["co2"] = data.co2Equivalent;
+  doc["calibrated"] = data.bsecCalibrated;
+
+  String request;
+  serializeJson(doc, request);
 
   int httpResponseCode = http.POST(request);
 
   if (httpResponseCode >= 200 && httpResponseCode < 300) {
+    if (http.getSize() > 1024) {
+      DEBUG_ERROR("Response too large: %d bytes", http.getSize());
+      http.end();
+      return result;
+    }
+
     String response = http.getString();
     DEBUG_INFO("Full AQI response: %s", response.c_str());
 
