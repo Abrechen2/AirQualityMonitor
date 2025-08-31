@@ -49,6 +49,7 @@ private:
     void drawWiFiIcon(int x, int y, bool connected);
     void drawNodeRedIcon(int x, int y, bool connected);
     void drawConnectionBar(int x, int y, bool wifiConnected, bool nodeRedResponding);
+    String getShortLevelName(const String& level);
   void updateStealthMode();
   void updateDisplayBrightness();
 };
@@ -122,7 +123,7 @@ void DisplayManager::updateDisplay(const SensorData& data, float aqi, const Stri
 void DisplayManager::drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected, bool nodeRedResponding) {
   // Status indicators
   display.setFont(u8g2_font_ncenB08_tr);
-  drawConnectionBar(124, 0, wifiConnected, nodeRedResponding);
+  drawConnectionBar(122, 0, wifiConnected, nodeRedResponding);
   if (data.bsecCalibrated) {
     display.drawStr(112, 8, "*");
   }
@@ -130,12 +131,18 @@ void DisplayManager::drawOverview(const SensorData& data, float aqi, const Strin
   // AQI - large value
   display.setFont(u8g2_font_ncenB14_tr);
   display.setCursor(0, 24);
-  display.printf("AQI: %.0f", aqi);
+  if (aqi > 999) {
+    display.setFont(u8g2_font_ncenB10_tr);
+    display.printf("AQI:%.0f", aqi);
+  } else {
+    display.printf("AQI: %.0f", aqi);
+  }
 
   // AQI Level from Node-RED
   display.setFont(u8g2_font_ncenB08_tr);
   display.setCursor(0, 34);
-  display.print(aqiLevel.c_str());
+  String shortLevel = getShortLevelName(aqiLevel);
+  display.print(shortLevel.c_str());
 
   // Main values - DS18B20 as primary temperature
   display.setFont(u8g2_font_ncenB08_tr);
@@ -168,7 +175,7 @@ void DisplayManager::drawOverview(const SensorData& data, float aqi, const Strin
 void DisplayManager::drawEnvironment(const SensorData& data, bool wifiConnected) {
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, "ENVIRONMENT");
-  drawWiFiIcon(110, 10, wifiConnected);
+  drawWiFiIcon(115, 10, wifiConnected);
   
   // DS18B20 as main temperature on top
   display.setCursor(0, 25);
@@ -201,7 +208,7 @@ void DisplayManager::drawEnvironment(const SensorData& data, bool wifiConnected)
 void DisplayManager::drawParticles(const SensorData& data, float aqi, bool wifiConnected) {
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, "PARTICLES");
-  drawWiFiIcon(110, 10, wifiConnected);
+  drawWiFiIcon(115, 10, wifiConnected);
   
   if (data.pms5003Available) {
     display.setCursor(0, 25);
@@ -222,36 +229,46 @@ void DisplayManager::drawParticles(const SensorData& data, float aqi, bool wifiC
 void DisplayManager::drawGas(const SensorData& data, bool wifiConnected) {
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, "GAS SENSORS");
-  drawWiFiIcon(110, 10, wifiConnected);
-  
+  drawWiFiIcon(115, 10, wifiConnected);
+
   if (data.bme68xAvailable) {
-    // Calibration status without ULP mode text
+    // Calibration status
     display.setCursor(0, 22);
-    display.printf("Status: %s", data.bsecCalibrated ? "Calibrated" : "Learning");
-    
-    // CO2 equivalent
+    display.printf("Cal: %s", data.bsecCalibrated ? "Yes" : "Learn");
+
+    // CO2 equivalent with overflow check
     display.setCursor(0, 32);
-    display.printf("CO2: %.0f ppm", data.co2Equivalent);
-
-    // VOC equivalent
-    display.setCursor(0, 42);
-    display.printf("VOC: %.1f mg/m³", data.breathVocEquivalent);
-
-    // IAQ Werte
-    display.setCursor(0, 52);
-    display.printf("IAQ: %.0f", data.iaq);
-
-    display.setCursor(60, 52);
-    display.printf("S-IAQ: %.0f", data.staticIaq);
-    
-    // Gas resistance with better resolution
-    display.setCursor(0, 62);
-    if (data.gasResistance > 100000) {
-      display.printf("Gas: %.0f kΩ", data.gasResistance / 1000.0);
+    if (data.co2Equivalent > 9999) {
+      display.print("CO2: >9999");
     } else {
-      display.printf("Gas: %.1f kΩ", data.gasResistance / 1000.0);
+      display.printf("CO2: %.0f ppm", data.co2Equivalent);
     }
-    
+
+    // VOC equivalent formatting
+    display.setCursor(0, 42);
+    if (data.breathVocEquivalent >= 10) {
+      display.printf("VOC: %.0f mg/m³", data.breathVocEquivalent);
+    } else {
+      display.printf("VOC: %.1f mg/m³", data.breathVocEquivalent);
+    }
+
+    // IAQ values compact
+    display.setCursor(0, 52);
+    display.printf("IAQ:%.0f", data.iaq);
+
+    display.setCursor(64, 52);
+    display.printf("sIAQ:%.0f", data.staticIaq);
+
+    // Gas resistance
+    display.setCursor(0, 62);
+    if (data.gasResistance >= 1000000) {
+      display.printf("Gas: %.1fMΩ", data.gasResistance / 1000000.0);
+    } else if (data.gasResistance >= 100000) {
+      display.printf("Gas: %.0fkΩ", data.gasResistance / 1000.0);
+    } else {
+      display.printf("Gas: %.1fkΩ", data.gasResistance / 1000.0);
+    }
+
   } else {
     display.setCursor(0, 30);
     display.print("BME68X: N/A");
@@ -261,21 +278,23 @@ void DisplayManager::drawGas(const SensorData& data, bool wifiConnected) {
 void DisplayManager::drawSystem(const SensorData& data, bool wifiConnected) {
   display.setFont(u8g2_font_ncenB08_tr);
   display.drawStr(0, 10, "SYSTEM");
-  drawWiFiIcon(110, 10, wifiConnected);
-  
+  drawWiFiIcon(115, 10, wifiConnected);
+
   // Formatted uptime
   display.setCursor(0, 25);
   uint64_t uptimeSeconds = getUptimeMillis() / 1000;
   unsigned long days = uptimeSeconds / 86400;
   unsigned long hours = (uptimeSeconds % 86400) / 3600;
   unsigned long minutes = (uptimeSeconds % 3600) / 60;
-  
-  if (days > 0) {
-    display.printf("Uptime: %lud %luh", days, hours);
+
+  if (days > 99) {
+    display.printf("Up: %lud", days);
+  } else if (days > 0) {
+    display.printf("Up: %lud %02luh", days, hours);
   } else if (hours > 0) {
-    display.printf("Uptime: %luh %lum", hours, minutes);
+    display.printf("Up: %luh %02lum", hours, minutes);
   } else {
-    display.printf("Uptime: %lum", minutes);
+    display.printf("Up: %lum", minutes);
   }
   
   // WiFi Status
@@ -340,6 +359,15 @@ void DisplayManager::drawConnectionBar(int x, int y, bool wifiConnected, bool no
   } else {
     display.drawFrame(x, y + segmentHeight + 1, segmentWidth, segmentHeight);
   }
+}
+
+String DisplayManager::getShortLevelName(const String& level) {
+  if (level == "Unhealthy for sensitive groups") return "Unhlthy Sens";
+  if (level == "Very unhealthy") return "Very Unhlthy";
+  if (level == "Extremely unhealthy") return "Extr. Unhlthy";
+  if (level == "Hazardous") return "Hazardous!";
+  if (level.length() > 15) return level.substring(0, 14);
+  return level;
 }
 
 void DisplayManager::showMessage(const String& message, int duration) {
