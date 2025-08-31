@@ -2,6 +2,8 @@
 
 ![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen)
 
+Printables https://www.printables.com/model/1400485-esp32-air-quality-monitor-beluftetes-sensorgehause
+
 Ein fortschrittlicher Luftqualitätssensor basierend auf ESP32-WROOM-32 mit drei präzisen Sensoren für umfassende Umweltüberwachung.
 
 ## 📋 Überblick
