@@ -2,76 +2,76 @@
 
 ![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen)
 
-Printables https://www.printables.com/model/1400485-esp32-air-quality-monitor-beluftetes-sensorgehause
+Enclosure on Printables: <https://www.printables.com/model/1400485-esp32-air-quality-monitor-beluftetes-sensorgehause>
 
-Ein fortschrittlicher Luftqualitätssensor basierend auf ESP32-WROOM-32 mit drei präzisen Sensoren für umfassende Umweltüberwachung.
+An advanced air‑quality sensor based on the ESP32‑WROOM‑32 with three precise sensors for comprehensive environmental monitoring.
 
-## 📋 Überblick
+## 📋 Overview
 
-Dieses Projekt implementiert eine komplette Luftqualitätsmonitoringstation mit:
-- **Echte CO₂ und TVOC Werte** (berechnet durch BME680 + BSEC)
-- **Feinstaub-Messung** (PM1.0, PM2.5, PM10)
-- **Präzise Temperaturmessung** über externen DS18B20
-- **Binäre Datenübertragung** für minimale Latenz
-- **OLED Display** für lokale Anzeige
-- **RGB LED Status-Anzeige**
+This project implements a complete air‑quality monitoring station with:
+- **Real CO₂ and TVOC values** (calculated with BME680 + BSEC)
+- **Particulate matter measurement** (PM1.0, PM2.5, PM10)
+- **Precise temperature measurement** via external DS18B20
+- **Binary data transmission** for minimal latency
+- **OLED display** for local visualization
+- **RGB LED status indicator**
 
-## 🔧 Hardware-Komponenten
+## 🔧 Hardware Components
 
-### Hauptplatine
-- **ESP32-WROOM-32** - Mikrocontroller mit WiFi
+### Main Board
+- **ESP32‑WROOM‑32** – microcontroller with Wi‑Fi
 
-### Sensoren
-| Sensor | Typ | Messwerte |
-|--------|-----|-----------|
-| **BME680** | 4-in-1 Umweltsensor | Temperatur, Luftfeuchtigkeit, Luftdruck, Gas-Widerstand |
-| **PMS5003** | Feinstaubsensor | PM1.0, PM2.5, PM10 µg/m³ |
-| **DS18B20** | Präzisions-Temperatursensor | Externe Temperatur (±0.5°C) |
+### Sensors
+| Sensor | Type | Measurements |
+|--------|------|--------------|
+| **BME680** | 4‑in‑1 environmental sensor | Temperature, humidity, pressure, gas resistance |
+| **PMS5003** | Particulate matter sensor | PM1.0, PM2.5, PM10 µg/m³ |
+| **DS18B20** | Precision temperature sensor | External temperature (±0.5 °C) |
 
-### Ausgabegeräte
-- **SH1106 OLED Display** (128x64) - Lokale Datenanzeige
-- **WS2812B RGB LEDs** - Status- und Qualitätsanzeige
+### Output Devices
+- **SH1106 OLED display** (128×64) – local data display
+- **WS2812B RGB LEDs** – status and air‑quality indicator
 
-## 🌟 Besondere Features
+## 🌟 Key Features
 
-### ✨ BSEC-Algorithmus Integration
-- **Bosch BSEC Library** für präzise Luftqualitätsmessung
-- **IAQ Index** (Indoor Air Quality)
-- **CO₂-Äquivalent** und **TVOC-Äquivalent** Berechnung
-- **Adaptiver Kalibrierungsalgorithmus**
+### ✨ BSEC Algorithm Integration
+- **Bosch BSEC library** for precise air‑quality measurement
+- **IAQ index** (Indoor Air Quality)
+- **CO₂ equivalent** and **TVOC equivalent** calculation
+- **Adaptive calibration algorithm**
 
-### 📡 Optimierte Datenübertragung
-- **44-Byte Binärprotokoll** für minimalen Overhead
-- **Checksumme-Validierung** für Datenintegrität
-- **WiFi Auto-Reconnect** mit Fallback-Modi
+### 📡 Optimized Data Transmission
+- **44‑byte binary protocol** for minimal overhead
+- **Checksum validation** for data integrity
+- **Wi‑Fi auto‑reconnect** with fallback modes
 
-### 🔋 Energieeffizienz
-- **BSEC ULP Mode** (Ultra Low Power)
-- **PMS5003 Sleep-Modus** zwischen Messungen
-- **Adaptives Sensor-Timing**
+### 🔋 Energy Efficiency
+- **BSEC ULP mode** (Ultra Low Power)
+- **PMS5003 sleep mode** between measurements
+- **Adaptive sensor timing**
 
-## 📊 Gemessene Werte
+## 📊 Measured Values
 
-### Luftqualität (BME680 + BSEC)
-- **IAQ**: 0-500 (Indoor Air Quality Index)
-- **CO₂-Äquivalent**: 400-40000 ppm
-- **TVOC-Äquivalent**: 0-60 mg/m³
-- **Genauigkeits-Indikatoren** für jeden Wert
+### Air Quality (BME680 + BSEC)
+- **IAQ**: 0‑500 (Indoor Air Quality Index)
+- **CO₂ equivalent**: 400‑40000 ppm
+- **TVOC equivalent**: 0‑60 mg/m³
+- **Accuracy indicators** for each value
 
-### Umweltdaten
-- **Temperatur**: -40°C bis +85°C (BME680 kompensiert)
-- **Luftfeuchtigkeit**: 0-100% rH (±3%)
-- **Luftdruck**: 300-1100 hPa (±1.0 hPa)
-- **Externe Temperatur**: DS18B20 (±0.5°C)
+### Environmental Data
+- **Temperature**: ‑40 °C to +85 °C (BME680 compensated)
+- **Humidity**: 0‑100 % rH (±3 %)
+- **Pressure**: 300‑1100 hPa (±1.0 hPa)
+- **External temperature**: DS18B20 (±0.5 °C)
 
-### Feinstaub (PMS5003)
-- **PM1.0**: Partikel ≤1.0µm
-- **PM2.5**: Partikel ≤2.5µm  
-- **PM10**: Partikel ≤10µm
+### Particulate Matter (PMS5003)
+- **PM1.0**: particles ≤1.0 µm
+- **PM2.5**: particles ≤2.5 µm
+- **PM10**: particles ≤10 µm
 
 ## 🔗 Installation
 
-### 1. Hardware-Verbindungen
+### 1. Hardware Connections
 ```
 BME680:  SDA → GPIO21, SCL → GPIO22
 PMS5003: RX → GPIO16, TX → GPIO17
@@ -81,54 +81,54 @@ LEDs:    Data → GPIO5
 Button:  Select → GPIO33
 ```
 
-### 2. Software-Requirements
-- **Arduino IDE** oder **PlatformIO**
-- **ESP32 Board Package**
+### 2. Software Requirements
+- **Arduino IDE** or **PlatformIO**
+- **ESP32 board package**
 - **Libraries**: BSEC, PMS, DallasTemperature, U8g2lib, NeoPixel
 
-### 3. Konfiguration
-1. Repository klonen:
+### 3. Configuration
+1. Clone the repository:
 ```bash
 git clone https://github.com/Abrechen2/AirQualityMonitor.git
 cd AirQualityMonitor
 ```
 
-2. `secrets.h` aus Template erstellen:
+2. Create `secrets.h` from the template:
 ```bash
 cp secrets_template.h secrets.h
 ```
 
-3. WiFi-Credentials in `secrets.h` eintragen:
+3. Enter Wi‑Fi credentials in `secrets.h`:
 ```cpp
-// ===== WIFI KONFIGURATION =====
+// ===== WIFI CONFIGURATION =====
 #define WIFI_SSID "SSID"
-#define WIFI_PASSWORD "IHR_PASSWORT_HIER_EINTRAGEN"
+#define WIFI_PASSWORD "ENTER_PASSWORD_HERE"
 
-// ===== NODE-RED ENDPUNKTE =====
-#define NODERED_SEND_URL "http://IHR_SERVER:1880/sensor-data"
-#define NODERED_AQI_URL "http://IHR_SERVER:1880/calculate-aqi"
+// ===== NODE‑RED ENDPOINTS =====
+#define NODERED_SEND_URL "http://YOUR_SERVER:1880/sensor-data"
+#define NODERED_AQI_URL "http://YOUR_SERVER:1880/calculate-aqi"
 ```
 
-4. Upload des Codes auf ESP32
+4. Upload the code to the ESP32
 
-### 4. Kalibrierung
-- **BME680**: Automatische BSEC-Kalibrierung über 4-7 Tage
-- **State-Persistierung** im EEPROM alle 6 Stunden
-- **CO₂/TVOC Genauigkeit** verbessert sich mit der Zeit
+### 4. Calibration
+- **BME680**: automatic BSEC calibration over 4‑7 days
+- **State persistence** in EEPROM every 6 hours
+- **CO₂/TVOC accuracy** improves over time
 
 ## 🛠️ Debugging
 
-- Das Verhalten der seriellen Debug-Ausgaben kann über `DEBUG_ENABLED` in `config.h` gesteuert werden.
-- Zusätzliche Makros `DEBUG_INFO`, `DEBUG_WARN` und `DEBUG_ERROR` liefern klar formatierte Ausgaben zur leichteren Fehleranalyse.
+- Serial debug output can be controlled via `DEBUG_ENABLED` in `config.h`.
+- Additional macros `DEBUG_INFO`, `DEBUG_WARN` and `DEBUG_ERROR` provide clearly formatted logs for easier troubleshooting.
 
-## 📈 Datenformat
+## 📈 Data Format
 
-### Binäre Übertragung (44 Bytes)
+### Binary Transmission (44 bytes)
 ```
 Header (4B) + BME680 (24B) + DS18B20 (3B) + PMS5003 (7B) + System (5B) + Checksum (1B)
 ```
 
-### JSON API für AQI-Berechnung
+### JSON API for AQI Calculation
 ```json
 {
   "pm2_5": 15,
@@ -139,102 +139,102 @@ Header (4B) + BME680 (24B) + DS18B20 (3B) + PMS5003 (7B) + System (5B) + Checksu
 }
 ```
 
-## 🎯 Anwendungsgebiete
+## 🎯 Use Cases
 
-- **Smart Home Integration**
-- **Büro-Luftqualitätsüberwachung**
-- **Allergie- und Asthmaprävention**
-- **HVAC-System Optimierung**
-- **Luftfilter-Effizienz Monitoring**
+- **Smart home integration**
+- **Office air‑quality monitoring**
+- **Allergy and asthma prevention**
+- **HVAC system optimization**
+- **Air‑filter efficiency monitoring**
 
-## 📋 Status-LEDs
+## 📋 Status LEDs
 
-| Farbe | Bedeutung |
-|-------|-----------|
-| 🟢 Grün | Excellent (IAQ 0-50) |
-| 🟡 Gelb | Good (IAQ 51-100) |
-| 🟠 Orange | Lightly Polluted (IAQ 101-150) |
-| 🔴 Rot | Moderately Polluted (IAQ 151-200) |
-| 🟣 Lila | Heavily Polluted (IAQ 201-300) |
-| ⚫ Dunkelrot | Severely Polluted (IAQ 300+) |
+| Color | Meaning |
+|-------|---------|
+| 🟢 Green | Excellent (IAQ 0‑50) |
+| 🟡 Yellow | Good (IAQ 51‑100) |
+| 🟠 Orange | Lightly polluted (IAQ 101‑150) |
+| 🔴 Red | Moderately polluted (IAQ 151‑200) |
+| 🟣 Purple | Heavily polluted (IAQ 201‑300) |
+| ⚫ Dark red | Severely polluted (IAQ 300+) |
 
-## 🛠️ Fehlerbehebung
+## 🛠️ Troubleshooting
 
-### WiFi-Verbindungsprobleme
-- SSID und Passwort in `secrets.h` prüfen
-- Router-Kompatibilität (2.4GHz erforderlich)
-- Signal-Stärke überprüfen
+### Wi‑Fi Connection Issues
+- Check SSID and password in `secrets.h`
+- Ensure router compatibility (2.4 GHz required)
+- Verify signal strength
 
-### Sensor-Fehler
-- I2C-Verbindungen kontrollieren
-- Sensor-Status im Serial Monitor prüfen
-- Power-Supply (3.3V/5V) verifizieren
+### Sensor Errors
+- Inspect I²C connections
+- Check sensor status in the serial monitor
+- Verify power supply (3.3 V/5 V)
 
-### BSEC-Kalibrierung
-- **Erste 4 Stunden**: Genauigkeit = 0-1 (unzuverlässig)
-- **Nach 24h**: Genauigkeit = 2 (verwendbar)
-- **Nach 7 Tagen**: Genauigkeit = 3 (optimal)
+### BSEC Calibration
+- **First 4 hours**: accuracy = 0‑1 (unreliable)
+- **After 24 h**: accuracy = 2 (usable)
+- **After 7 days**: accuracy = 3 (optimal)
 
-## 📐 Schaltplan & Layout
+## 📐 Schematics & Layout
 
-Im Verzeichnis [Schematics](Schematics) befinden sich alle KiCad-Dateien des Projekts.
-Der Unterordner `Schematics/KiCad` enthält das komplette KiCad-Projekt (`AirQualityMonitor.kicad_pro`, `.kicad_pcb`, `.kicad_sch`).
-Zur schnellen Ansicht ohne KiCad stehen folgende PDFs bereit:
+All KiCad files of the project are located in the [Schematics](Schematics) directory.
+The subfolder `Schematics/KiCad` contains the complete KiCad project (`AirQualityMonitor.kicad_pro`, `.kicad_pcb`, `.kicad_sch`).
+For a quick view without KiCad the following PDFs are available:
 
-- [MainPCB-Schematic.pdf](Schematics/MainPCB-Schematic.pdf) – Schaltplan
-- [MainPCB-Layout.pdf](Schematics/MainPCB-Layout.pdf) – Leiterplattenlayout
+- [MainPCB-Schematic.pdf](Schematics/MainPCB-Schematic.pdf) – schematic
+- [MainPCB-Layout.pdf](Schematics/MainPCB-Layout.pdf) – board layout
 
-## 📁 Projektstruktur
+## 📁 Project Structure
 
 ```
 AirQualityMonitor/
-├── AirQualityMonitor.ino    # Hauptprogramm
-├── config.h                 # Hardware-Konfiguration
-├── secrets_template.h       # Template für sensible Daten
-├── SensorManager.h          # Sensor-Verwaltung
-├── DisplayManager.h         # OLED-Display
-├── ButtonHandler.h          # Button-Steuerung
-├── LEDManager.h            # RGB-LED Steuerung
-├── ByteTransmission.h      # Binary data transmission
-├── DATENPUNKTE.md          # Dokumentation der Datenpunkte
-├── Schematics/             # KiCad-Projekt und PDFs
-├── NodeRed/                # Node-RED Flows
-├── LICENSE                 # MIT-Lizenz
-└── README.md               # Diese Datei
+├── AirQualityMonitor.ino    # Main program
+├── config.h                 # Hardware configuration
+├── secrets_template.h       # Template for sensitive data
+├── SensorManager.h          # Sensor management
+├── DisplayManager.h         # OLED display
+├── ButtonHandler.h          # Button control
+├── LEDManager.h             # RGB LED control
+├── ByteTransmission.h       # Binary data transmission
+├── TimeUtils.h              # Time and scheduling helpers
+├── DATENPUNKTE.md          # Documentation of data points (German)
+├── Schematics/              # KiCad project and PDFs
+├── NodeRed/                 # Node‑RED flows
+├── Printdata/               # STL and STEP files for enclosure
+├── Pictures/                # Photos of the device
+├── LICENSE                  # MIT license
+└── README.md                # This file
 ```
 
-## 🔄 Updates und Wartung
+## 🔄 Updates and Maintenance
 
-- **BSEC State Backup**: Automatisch alle 6h im EEPROM
-- **Sensor-Kalibrierung**: Kontinuierlich während Betrieb
+- **BSEC state backup**: automatically every 6 h in EEPROM
+- **Sensor calibration**: continuous during operation
 
-## 🤝 Beitragen
+## 🤝 Contributing
 
-Contributions sind willkommen! Bitte:
-1. Fork das Repository
-2. Erstelle einen Feature-Branch
-3. Committe deine Änderungen
-4. Erstelle einen Pull Request
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Open a pull request
 
+## 👨‍💻 Author
 
+**Abrechen2**
+Version 1.0.0 – Complete Stealth & Gas Sensor Integration + Byte Transmission
 
-## 👨‍💻 Autor
+## 📄 License
 
-**Abrechen2**  
-Version 1.0.0 - Complete Stealth & Gas Sensor Integration + Byte Transmission
-
-## 📄 Lizenz
-
-Dieses Projekt ist unter der MIT-Lizenz veröffentlicht. Siehe [LICENSE](LICENSE) für Details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ## 📝 Support
 
-Bei Fragen oder Problemen:
-- Erstelle ein Issue in diesem Repository
-- Überprüfe die Dokumentation in den Header-Dateien
-- Konsultiere [DATENPUNKTE.md](DATENPUNKTE.md) für technische Details
+If you have questions or problems:
+- Open an issue in this repository
+- Check the documentation in the header files
+- Consult [DATENPUNKTE.md](DATENPUNKTE.md) for technical details
 
 ---
 
-
-*Für detaillierte Informationen zu den Datenpunkten siehe [DATENPUNKTE.md](DATENPUNKTE.md)*
+*For detailed information about the data points see [DATENPUNKTE.md](DATENPUNKTE.md)*
