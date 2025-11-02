@@ -45,6 +45,8 @@ bool nodeRedResponding = false;  // Node-RED response status
 float calculatedAQI = 50.0;
 String aqiLevel = "Good";
 uint32_t aqiColorCode = 0x00FF00; // Green
+unsigned long lastWifiAttempt = 0;
+uint8_t wifiRetryCount = 0;
 
 AQIResult calculateLocalAQI(const SensorData& data) {
   AQIResult result;
@@ -117,12 +119,14 @@ void setup() {
   // Connect to WiFi
   displayManager.showMessage("Connecting WiFi...");
   wifiConnected = byteManager.connectWiFi();
+  lastWifiAttempt = millis();
 
   if (wifiConnected) {
     displayManager.showMessage("WiFi connected!", 1000);
     String ip = WiFi.localIP().toString();
     displayManager.showMessage("IP: " + ip, 2000);
     DEBUG_INFO("WiFi connected successfully");
+    wifiRetryCount = 0;
   } else {
     displayManager.showMessage("Offline mode", 5000);
     DEBUG_WARN("WiFi connection failed - offline mode");
@@ -184,10 +188,47 @@ void loop() {
   }
   
   // Check WiFi connection
-  if (wifiConnected && WiFi.status() != WL_CONNECTED) {
-    DEBUG_WARN("WiFi lost - attempting reconnection");
-    wifiConnected = byteManager.connectWiFi();
+  wl_status_t wifiStatus = WiFi.status();
+  unsigned long now = millis();
+
+  if (wifiStatus == WL_CONNECTED) {
+    if (!wifiConnected) {
+      wifiConnected = true;
+      wifiRetryCount = 0;
+      DEBUG_INFO("WiFi reconnected successfully");
+    }
+  } else {
+    if (wifiConnected) {
+      wifiConnected = false;
+      DEBUG_WARN("WiFi lost - entering reconnection cycle");
+    }
+
+    if (now - lastWifiAttempt >= WIFI_RETRY_INTERVAL || now < lastWifiAttempt) {
+      lastWifiAttempt = now;
+      DEBUG_WARN("WiFi disconnected - attempting reconnection (%u/%u)",
+                 wifiRetryCount + 1, WIFI_MAX_RETRY_ATTEMPTS);
+
+      bool reconnected = byteManager.connectWiFi();
+
+      if (reconnected) {
+        wifiConnected = true;
+        wifiRetryCount = 0;
+        DEBUG_INFO("WiFi reconnected after retry");
+      } else {
+        wifiConnected = false;
+        wifiRetryCount++;
+        DEBUG_WARN("WiFi reconnection failed (attempt %u)", wifiRetryCount);
+
+        if (wifiRetryCount >= WIFI_MAX_RETRY_ATTEMPTS) {
+          displayManager.showMessage("WiFi restart...", 2000);
+          DEBUG_ERROR("WiFi retries exceeded - restarting device");
+          WiFi.disconnect(true);
+          delay(1000);
+          ESP.restart();
+        }
+      }
+    }
   }
-  
+
   delay(100);
 }

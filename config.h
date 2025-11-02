@@ -29,6 +29,8 @@
 #define DATA_SEND_INTERVAL 10000      // 10 seconds
 #define SENSOR_READ_INTERVAL 3000     // 3 seconds (BSEC ULP mode compromise)
 #define WIFI_CONNECT_TIMEOUT 15000    // 15 seconds
+#define WIFI_RETRY_INTERVAL 30000     // 30 seconds between reconnection attempts
+#define WIFI_MAX_RETRY_ATTEMPTS 5     // Number of retries before forcing restart
 #define STEALTH_TEMP_ON_MS 20000      // 20 seconds temporary activation
 
 // ===== SENSOR CONFIGURATION =====
