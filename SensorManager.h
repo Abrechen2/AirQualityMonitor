@@ -266,42 +266,78 @@ bool SensorManager::readBME68X() {
   if (!bme68x.run()) {
     return false;
   }
-  
-  // Compensated values from BSEC
-  currentData.temperature = bme68x.temperature + tempCorrection;
-  currentData.humidity = bme68x.humidity + humidityCorrection;
-  currentData.pressure = bme68x.pressure / 100.0; // hPa
-  currentData.gasResistance = bme68x.gasResistance;
-  
-  // BSEC gas algorithm outputs
-  currentData.iaq = bme68x.iaq;
-  currentData.iaqAccuracy = bme68x.iaqAccuracy;
-  currentData.staticIaq = bme68x.staticIaq;
-  currentData.staticIaqAccuracy = bme68x.staticIaqAccuracy;
-  currentData.co2Equivalent = bme68x.co2Equivalent;
-  currentData.co2Accuracy = bme68x.co2Accuracy;
-  currentData.breathVocEquivalent = bme68x.breathVocEquivalent;
-  currentData.breathVocAccuracy = bme68x.breathVocAccuracy;
-  
+
+  // Read and validate temperature
+  float temp = bme68x.temperature + tempCorrection;
+  if (temp >= TEMP_MIN_VALID && temp <= TEMP_MAX_VALID) {
+    currentData.temperature = temp;
+  } else {
+    DEBUG_WARN("BME68X temperature out of range: %.1f°C", temp);
+    return false;
+  }
+
+  // Read and validate humidity
+  float hum = bme68x.humidity + humidityCorrection;
+  if (hum >= HUMIDITY_MIN_VALID && hum <= HUMIDITY_MAX_VALID) {
+    currentData.humidity = hum;
+  } else {
+    DEBUG_WARN("BME68X humidity out of range: %.1f%%", hum);
+    // Clamp instead of rejecting
+    currentData.humidity = constrain(hum, HUMIDITY_MIN_VALID, HUMIDITY_MAX_VALID);
+  }
+
+  // Read and validate pressure
+  float press = bme68x.pressure / 100.0; // hPa
+  if (press >= PRESSURE_MIN_VALID && press <= PRESSURE_MAX_VALID) {
+    currentData.pressure = press;
+  } else {
+    DEBUG_WARN("BME68X pressure out of range: %.1f hPa", press);
+    return false;
+  }
+
+  // Gas resistance (should be positive)
+  if (bme68x.gasResistance > 0) {
+    currentData.gasResistance = bme68x.gasResistance;
+  } else {
+    DEBUG_WARN("Invalid gas resistance: %.0f", bme68x.gasResistance);
+    currentData.gasResistance = 0;
+  }
+
+  // BSEC gas algorithm outputs with validation
+  currentData.iaq = constrain(bme68x.iaq, 0.0f, (float)IAQ_MAX_VALID);
+  currentData.iaqAccuracy = min(bme68x.iaqAccuracy, (uint8_t)3);
+  currentData.staticIaq = constrain(bme68x.staticIaq, 0.0f, (float)IAQ_MAX_VALID);
+  currentData.staticIaqAccuracy = min(bme68x.staticIaqAccuracy, (uint8_t)3);
+  currentData.co2Equivalent = constrain(bme68x.co2Equivalent, (float)CO2_MIN_VALID, (float)CO2_MAX_VALID);
+  currentData.co2Accuracy = min(bme68x.co2Accuracy, (uint8_t)3);
+  currentData.breathVocEquivalent = max(bme68x.breathVocEquivalent, 0.0f);
+  currentData.breathVocAccuracy = min(bme68x.breathVocAccuracy, (uint8_t)3);
+
   // Calibration status
   currentData.bsecCalibrated = (currentData.iaqAccuracy >= 2);
-  
+
   return true;
 }
 
 bool SensorManager::readDS18B20() {
   ds18b20.requestTemperatures();
   delay(750); // Conversion time for 12-bit
-  
+
   float temp = ds18b20.getTempCByIndex(0);
-  
+
   if (temp == DEVICE_DISCONNECTED_C) {
-    DEBUG_WARN("DS18B20 read failed");
+    DEBUG_WARN("DS18B20 disconnected");
     return false;
   }
-  
-  currentData.externalTemp = temp;
-  return true;
+
+  // Validate temperature range
+  if (temp >= TEMP_MIN_VALID && temp <= TEMP_MAX_VALID) {
+    currentData.externalTemp = temp;
+    return true;
+  } else {
+    DEBUG_WARN("DS18B20 temperature out of range: %.1f°C", temp);
+    return false;
+  }
 }
 
 bool SensorManager::readPMS5003() {
@@ -311,11 +347,27 @@ bool SensorManager::readPMS5003() {
   for (int i = 0; i < 3; i++) {
     pms5003.requestRead();
     if (pms5003.readUntil(pmsData, 1000)) {
-      currentData.pm1_0 = pmsData.PM_AE_UG_1_0;
-      currentData.pm2_5 = pmsData.PM_AE_UG_2_5;
-      currentData.pm10 = pmsData.PM_AE_UG_10_0;
-      pms5003.sleep();
-      return true;
+      // Validate PM values (should be within reasonable range)
+      if (pmsData.PM_AE_UG_1_0 <= PM_MAX_VALID &&
+          pmsData.PM_AE_UG_2_5 <= PM_MAX_VALID &&
+          pmsData.PM_AE_UG_10_0 <= PM_MAX_VALID) {
+
+        // Sanity check: PM1.0 <= PM2.5 <= PM10
+        if (pmsData.PM_AE_UG_1_0 <= pmsData.PM_AE_UG_2_5 &&
+            pmsData.PM_AE_UG_2_5 <= pmsData.PM_AE_UG_10_0) {
+          currentData.pm1_0 = pmsData.PM_AE_UG_1_0;
+          currentData.pm2_5 = pmsData.PM_AE_UG_2_5;
+          currentData.pm10 = pmsData.PM_AE_UG_10_0;
+          pms5003.sleep();
+          return true;
+        } else {
+          DEBUG_WARN("PMS5003 data order invalid: PM1.0=%d, PM2.5=%d, PM10=%d",
+                     pmsData.PM_AE_UG_1_0, pmsData.PM_AE_UG_2_5, pmsData.PM_AE_UG_10_0);
+        }
+      } else {
+        DEBUG_WARN("PMS5003 values out of range (max %d): PM1.0=%d, PM2.5=%d, PM10=%d",
+                   PM_MAX_VALID, pmsData.PM_AE_UG_1_0, pmsData.PM_AE_UG_2_5, pmsData.PM_AE_UG_10_0);
+      }
     }
   }
 

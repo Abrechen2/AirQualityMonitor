@@ -66,14 +66,18 @@ struct AQIResult {
 class ByteTransmissionManager {
 private:
   unsigned long lastSendTime = 0;
-  
+  unsigned long lastWiFiAttempt = 0;
+  int wifiRetryDelay = 5000; // Start with 5 seconds
+
 public:
   ByteTransmissionManager();
-  
+
   bool connectWiFi();
+  bool reconnectWiFi();
   bool isTimeToSend();
+  bool canAttemptWiFiReconnect();
   AQIResult sendDataAndGetAQI(const SensorData& data);
-  
+
 private:
   SensorDataPacket createPacket(const SensorData& data);
   uint8_t calculateChecksum(const SensorDataPacket& packet);
@@ -101,11 +105,41 @@ bool ByteTransmissionManager::connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
     DEBUG_INFO("WiFi connected: %s", WiFi.localIP().toString().c_str());
     DEBUG_INFO("RSSI: %d dBm", WiFi.RSSI());
+    wifiRetryDelay = 5000; // Reset retry delay on success
+    lastWiFiAttempt = millis();
     return true;
   } else {
     DEBUG_ERROR("WiFi connection failed");
+    lastWiFiAttempt = millis();
     return false;
   }
+}
+
+bool ByteTransmissionManager::reconnectWiFi() {
+  // Don't attempt if recently tried
+  if (!canAttemptWiFiReconnect()) {
+    return false;
+  }
+
+  DEBUG_INFO("Attempting WiFi reconnection (retry delay: %d ms)", wifiRetryDelay);
+
+  // Disconnect first to clean up
+  WiFi.disconnect();
+  delay(1000);
+
+  bool connected = connectWiFi();
+
+  if (!connected) {
+    // Exponential backoff up to 5 minutes
+    wifiRetryDelay = min(wifiRetryDelay * 2, 300000);
+    DEBUG_WARN("WiFi reconnection failed. Next attempt in %d ms", wifiRetryDelay);
+  }
+
+  return connected;
+}
+
+bool ByteTransmissionManager::canAttemptWiFiReconnect() {
+  return (millis() - lastWiFiAttempt >= wifiRetryDelay);
 }
 
 bool ByteTransmissionManager::isTimeToSend() {
@@ -185,31 +219,67 @@ uint8_t ByteTransmissionManager::calculateChecksum(const SensorDataPacket& packe
 }
 
 bool ByteTransmissionManager::sendBinaryData(const SensorDataPacket& packet) {
-  HTTPClient http;
-  http.begin(NODERED_SEND_URL);
-  http.addHeader("Content-Type", "application/octet-stream");
-  http.addHeader("X-Packet-Size", String(sizeof(SensorDataPacket)));
-  http.setTimeout(5000);
-  
-  DEBUG_INFO("Sending binary packet (%d bytes)", sizeof(SensorDataPacket));
-  
-  // Send binary data
-  int httpResponseCode = http.POST((uint8_t*)&packet, sizeof(SensorDataPacket));
-  
   bool success = false;
-  if (httpResponseCode >= 200 && httpResponseCode < 300) {
-    DEBUG_INFO("Binary data sent successfully, HTTP: %d", httpResponseCode);
-    success = true;
-  } else {
-    DEBUG_ERROR("HTTP POST failed: %d", httpResponseCode);
+  int retryDelay = HTTP_RETRY_DELAY_MS;
+
+  for (int attempt = 0; attempt < HTTP_MAX_RETRIES; attempt++) {
+    // Check WiFi connection before attempting
+    if (WiFi.status() != WL_CONNECTED) {
+      DEBUG_WARN("WiFi not connected, attempt %d/%d", attempt + 1, HTTP_MAX_RETRIES);
+      delay(retryDelay);
+      retryDelay *= 2; // Exponential backoff
+      continue;
+    }
+
+    HTTPClient http;
+    http.begin(NODERED_SEND_URL);
+    http.addHeader("Content-Type", "application/octet-stream");
+    http.addHeader("X-Packet-Size", String(sizeof(SensorDataPacket)));
+    http.setTimeout(5000);
+
+    DEBUG_INFO("Sending binary packet (%d bytes), attempt %d/%d",
+               sizeof(SensorDataPacket), attempt + 1, HTTP_MAX_RETRIES);
+
+    // Send binary data
+    int httpResponseCode = http.POST((uint8_t*)&packet, sizeof(SensorDataPacket));
+
+    if (httpResponseCode >= 200 && httpResponseCode < 300) {
+      DEBUG_INFO("Binary data sent successfully, HTTP: %d", httpResponseCode);
+      success = true;
+      http.end();
+      break;
+    } else if (httpResponseCode > 0) {
+      DEBUG_ERROR("HTTP POST failed: %d (attempt %d/%d)",
+                  httpResponseCode, attempt + 1, HTTP_MAX_RETRIES);
+    } else {
+      DEBUG_ERROR("HTTP POST connection error: %d (attempt %d/%d)",
+                  httpResponseCode, attempt + 1, HTTP_MAX_RETRIES);
+    }
+
+    http.end();
+
+    // Wait before retry (except on last attempt)
+    if (attempt < HTTP_MAX_RETRIES - 1) {
+      delay(retryDelay);
+      retryDelay *= 2; // Exponential backoff
+    }
   }
-  
-  http.end();
+
+  if (!success) {
+    DEBUG_ERROR("Binary data transmission failed after %d attempts", HTTP_MAX_RETRIES);
+  }
+
   return success;
 }
 
 AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   AQIResult result;
+
+  // Check WiFi connection before attempting
+  if (WiFi.status() != WL_CONNECTED) {
+    DEBUG_WARN("WiFi not connected, skipping AQI request");
+    return result;
+  }
 
   HTTPClient http;
   http.begin(NODERED_AQI_URL);
@@ -219,51 +289,100 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   const char* headerKeys[] = {"Content-Length"};
   http.collectHeaders(headerKeys, 1);
 
+  // Build JSON request with input validation
+  StaticJsonDocument<256> requestDoc;
 
-  // Build JSON request safely
-  StaticJsonDocument<256> doc;
-  doc["pm2_5"] = data.pm2_5;
-  doc["pm10"] = data.pm10;
-  doc["iaq"] = data.iaq;
-  doc["co2"] = data.co2Equivalent;
-  doc["calibrated"] = data.bsecCalibrated;
+  // Validate and clamp sensor values before sending
+  requestDoc["pm2_5"] = min((int)data.pm2_5, (int)PM_MAX_VALID);
+  requestDoc["pm10"] = min((int)data.pm10, (int)PM_MAX_VALID);
+  requestDoc["iaq"] = min(data.iaq, (float)IAQ_MAX_VALID);
+  requestDoc["co2"] = constrain(data.co2Equivalent, (float)CO2_MIN_VALID, (float)CO2_MAX_VALID);
+  requestDoc["calibrated"] = data.bsecCalibrated;
 
   String request;
-  serializeJson(doc, request);
+  size_t serializedSize = serializeJson(requestDoc, request);
 
+  if (serializedSize == 0) {
+    DEBUG_ERROR("JSON serialization failed");
+    http.end();
+    return result;
+  }
+
+  DEBUG_INFO("Sending AQI request (%d bytes)", serializedSize);
   int httpResponseCode = http.POST(request);
 
   if (httpResponseCode >= 200 && httpResponseCode < 300) {
-    if (http.getSize() > 1024) {
-      DEBUG_ERROR("Response too large: %d bytes", http.getSize());
+    int responseSize = http.getSize();
+
+    // Validate response size
+    if (responseSize > HTTP_RESPONSE_MAX_SIZE) {
+      DEBUG_ERROR("Response too large: %d bytes (max %d)", responseSize, HTTP_RESPONSE_MAX_SIZE);
       http.end();
       return result;
     }
 
-    String response = http.getString();
-    DEBUG_INFO("Full AQI response: %s", response.c_str());
+    if (responseSize <= 0) {
+      DEBUG_WARN("Empty or unknown response size");
+    }
 
-    StaticJsonDocument<256> doc;
-    DeserializationError error = deserializeJson(doc, response);
+    String response = http.getString();
+
+    // Additional size check after reading
+    if (response.length() > HTTP_RESPONSE_MAX_SIZE) {
+      DEBUG_ERROR("Response string too large: %d bytes", response.length());
+      http.end();
+      return result;
+    }
+
+    DEBUG_INFO("AQI response (%d bytes): %s", response.length(), response.c_str());
+
+    StaticJsonDocument<256> responseDoc;
+    DeserializationError error = deserializeJson(responseDoc, response);
 
     if (!error) {
-      JsonObject aqi = doc["aqi"];
+      JsonObject aqi = responseDoc["aqi"];
       if (!aqi.isNull()) {
-        result.aqi = aqi["combined"].as<float>();
+        // Validate AQI value
+        float aqiValue = aqi["combined"].as<float>();
+        if (aqiValue >= 0 && aqiValue <= 1000) {
+          result.aqi = aqiValue;
+        } else {
+          DEBUG_WARN("AQI value out of range: %.1f", aqiValue);
+          result.aqi = 50.0; // Safe default
+        }
+
+        // Extract level with validation
         if (aqi.containsKey("level")) {
-          result.level = String((const char*)aqi["level"]);
+          const char* levelPtr = aqi["level"];
+          if (levelPtr != nullptr) {
+            result.level = String(levelPtr);
+            // Limit level string length
+            if (result.level.length() > 32) {
+              result.level = result.level.substring(0, 32);
+            }
+          }
         }
+
+        // Extract and parse color
         if (aqi.containsKey("color")) {
-          result.colorCode = parseColorCode(String((const char*)aqi["color"]));
+          const char* colorPtr = aqi["color"];
+          if (colorPtr != nullptr) {
+            result.colorCode = parseColorCode(String(colorPtr));
+          }
         }
+
         result.success = true;
-        DEBUG_INFO("Final parsed AQI: %.1f (%s)", result.aqi, result.level.c_str());
+        DEBUG_INFO("Parsed AQI: %.1f (%s)", result.aqi, result.level.c_str());
+      } else {
+        DEBUG_ERROR("Missing 'aqi' object in response");
       }
     } else {
       DEBUG_ERROR("JSON parse failed: %s", error.c_str());
     }
-  } else {
+  } else if (httpResponseCode > 0) {
     DEBUG_ERROR("AQI request failed, HTTP: %d", httpResponseCode);
+  } else {
+    DEBUG_ERROR("AQI request connection error: %d", httpResponseCode);
   }
 
   http.end();
@@ -271,16 +390,48 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
 }
 
 uint32_t ByteTransmissionManager::parseColorCode(const String& colorStr) {
+  // Validate input string is not empty
+  if (colorStr.length() == 0) {
+    DEBUG_WARN("Empty color string, using default green");
+    return 0x00FF00;
+  }
+
+  // Parse hex color code with validation
   if (colorStr.startsWith("#") && colorStr.length() == 7) {
-    long color = strtol(colorStr.substring(1).c_str(), NULL, 16);
+    // Validate all characters after # are hex digits
+    String hexPart = colorStr.substring(1);
+    for (unsigned int i = 0; i < hexPart.length(); i++) {
+      char c = hexPart.charAt(i);
+      if (!isxdigit(c)) {
+        DEBUG_WARN("Invalid hex color: %s", colorStr.c_str());
+        return 0x00FF00;
+      }
+    }
+
+    char* endPtr;
+    long color = strtol(hexPart.c_str(), &endPtr, 16);
+
+    // Verify entire string was parsed
+    if (*endPtr != '\0') {
+      DEBUG_WARN("Invalid color format: %s", colorStr.c_str());
+      return 0x00FF00;
+    }
+
+    // Validate color is within valid RGB range
+    if (color < 0 || color > 0xFFFFFF) {
+      DEBUG_WARN("Color out of range: %s", colorStr.c_str());
+      return 0x00FF00;
+    }
+
     return (uint32_t)color;
   }
-  
-  // Fallback colors
+
+  // Fallback colors based on level names
   if (colorStr.indexOf("Good") >= 0) return 0x00FF00;
   if (colorStr.indexOf("Moderate") >= 0) return 0xFFFF00;
   if (colorStr.indexOf("Unhealthy") >= 0) return 0xFF0000;
 
+  DEBUG_WARN("Unknown color format: %s, using default", colorStr.c_str());
   return 0x00FF00; // Default green
 }
 

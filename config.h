@@ -31,9 +31,35 @@
 #define WIFI_CONNECT_TIMEOUT 15000    // 15 seconds
 #define STEALTH_TEMP_ON_MS 20000      // 20 seconds temporary activation
 
+// ===== NETWORK CONFIGURATION =====
+#define HTTP_MAX_RETRIES 3            // Maximum HTTP request retries
+#define HTTP_RETRY_DELAY_MS 2000      // Initial retry delay (exponential backoff)
+#define WIFI_RECONNECT_INTERVAL 60000 // 60 seconds between WiFi reconnection attempts
+#define HTTP_RESPONSE_MAX_SIZE 2048   // Maximum expected HTTP response size
+
 // ===== SENSOR CONFIGURATION =====
 #define DEFAULT_TEMP_CORRECTION -3.5
 #define DEFAULT_HUMIDITY_CORRECTION 0.0
+
+// Sensor value validation ranges
+#define TEMP_MIN_VALID -40.0      // Minimum valid temperature (°C)
+#define TEMP_MAX_VALID 85.0       // Maximum valid temperature (°C)
+#define HUMIDITY_MIN_VALID 0.0    // Minimum valid humidity (%)
+#define HUMIDITY_MAX_VALID 100.0  // Maximum valid humidity (%)
+#define PRESSURE_MIN_VALID 300.0  // Minimum valid pressure (hPa)
+#define PRESSURE_MAX_VALID 1100.0 // Maximum valid pressure (hPa)
+#define PM_MAX_VALID 1000         // Maximum valid PM value (µg/m³)
+#define IAQ_MAX_VALID 500         // Maximum valid IAQ value
+#define CO2_MIN_VALID 400         // Minimum valid CO2 (ppm)
+#define CO2_MAX_VALID 10000       // Maximum valid CO2 (ppm)
+
+// AQI Calculation Thresholds (US EPA PM2.5 breakpoints)
+#define AQI_PM25_GOOD_MAX 12.0
+#define AQI_PM25_MODERATE_MAX 35.4
+#define AQI_PM25_UNHEALTHY_SENSITIVE_MAX 55.4
+#define AQI_PM25_UNHEALTHY_MAX 150.4
+#define AQI_PM25_VERY_UNHEALTHY_MAX 250.4
+#define AQI_PM25_HAZARDOUS_MAX 500.4
 
 // BSEC configuration
 #define BSEC_STATE_SAVE_INTERVAL 21600000  // 6 hours in ms

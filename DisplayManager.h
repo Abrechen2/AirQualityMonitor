@@ -362,28 +362,50 @@ void DisplayManager::drawConnectionBar(int x, int y, bool wifiConnected, bool no
 }
 
 String DisplayManager::getShortLevelName(const String& level) {
+  // Validate input string is not empty
+  if (level.length() == 0) {
+    return "Unknown";
+  }
+
+  // Protect against very long strings
+  if (level.length() > 128) {
+    DEBUG_WARN("Level string too long: %d chars", level.length());
+    return "Invalid";
+  }
+
+  // Known mappings
   if (level == "Unhealthy for sensitive groups") return "Unhlthy Sens";
   if (level == "Very unhealthy") return "Very Unhlthy";
   if (level == "Extremely unhealthy") return "Extr. Unhlthy";
   if (level == "Hazardous") return "Hazardous!";
+
+  // Truncate if too long for display
   if (level.length() > 15) return level.substring(0, 14);
+
   return level;
 }
 
 void DisplayManager::showMessage(const String& message, int duration) {
   if (!displayEnabled) return;
-  
+
+  // Validate message length to prevent display buffer issues
+  String safeMessage = message;
+  if (safeMessage.length() > 64) {
+    safeMessage = safeMessage.substring(0, 64);
+    DEBUG_WARN("Message truncated to 64 chars");
+  }
+
   display.clearBuffer();
   display.setFont(u8g2_font_ncenB08_tr);
-  
-  // Center text
-  int textWidth = display.getUTF8Width(message.c_str());
-  int x = (SCREEN_WIDTH - textWidth) / 2;
-  
-  display.drawStr(x, 32, message.c_str());
+
+  // Center text with bounds checking
+  int textWidth = display.getUTF8Width(safeMessage.c_str());
+  int x = max(0, (SCREEN_WIDTH - textWidth) / 2);
+
+  display.drawStr(x, 32, safeMessage.c_str());
   display.sendBuffer();
-  
-  if (duration > 0) {
+
+  if (duration > 0 && duration < 30000) { // Limit max delay to 30 seconds
     delay(duration);
   }
 }

@@ -48,31 +48,58 @@ uint32_t aqiColorCode = 0x00FF00; // Green
 
 AQIResult calculateLocalAQI(const SensorData& data) {
   AQIResult result;
-  int pm25 = data.pm2_5;
+
+  // Validate input PM2.5 value
+  float pm25 = (float)data.pm2_5;
+  if (pm25 < 0) {
+    DEBUG_WARN("Invalid PM2.5 value: %.1f", pm25);
+    pm25 = 0;
+  }
+
+  // Clamp to maximum valid value
+  if (pm25 > PM_MAX_VALID) {
+    DEBUG_WARN("PM2.5 exceeds max valid: %.1f", pm25);
+    pm25 = PM_MAX_VALID;
+  }
+
   float aqi = 0;
 
-  if (pm25 <= 12) {
-    aqi = pm25 * 50.0 / 12.0;
+  // US EPA PM2.5 AQI calculation using named constants
+  if (pm25 <= AQI_PM25_GOOD_MAX) {
+    // Good (0-50)
+    aqi = pm25 * 50.0 / AQI_PM25_GOOD_MAX;
     result.level = F("Good");
     result.colorCode = 0x00FF00;
-  } else if (pm25 <= 35) {
-    aqi = (pm25 - 12.1) * (100.0 - 51.0) / (35.4 - 12.1) + 51.0;
+  } else if (pm25 <= AQI_PM25_MODERATE_MAX) {
+    // Moderate (51-100)
+    aqi = (pm25 - AQI_PM25_GOOD_MAX) * (100.0 - 51.0) /
+          (AQI_PM25_MODERATE_MAX - AQI_PM25_GOOD_MAX) + 51.0;
     result.level = F("Moderate");
     result.colorCode = 0xFFFF00;
-  } else if (pm25 <= 55) {
-    aqi = (pm25 - 35.5) * (150.0 - 101.0) / (55.4 - 35.5) + 101.0;
+  } else if (pm25 <= AQI_PM25_UNHEALTHY_SENSITIVE_MAX) {
+    // Unhealthy for Sensitive Groups (101-150)
+    aqi = (pm25 - AQI_PM25_MODERATE_MAX) * (150.0 - 101.0) /
+          (AQI_PM25_UNHEALTHY_SENSITIVE_MAX - AQI_PM25_MODERATE_MAX) + 101.0;
     result.level = F("Poor");
     result.colorCode = 0xFFA500;
-  } else if (pm25 <= 150) {
-    aqi = (pm25 - 55.5) * (200.0 - 151.0) / (150.4 - 55.5) + 151.0;
+  } else if (pm25 <= AQI_PM25_UNHEALTHY_MAX) {
+    // Unhealthy (151-200)
+    aqi = (pm25 - AQI_PM25_UNHEALTHY_SENSITIVE_MAX) * (200.0 - 151.0) /
+          (AQI_PM25_UNHEALTHY_MAX - AQI_PM25_UNHEALTHY_SENSITIVE_MAX) + 151.0;
     result.level = F("Unhealthy");
     result.colorCode = 0xFF0000;
-  } else if (pm25 <= 250) {
-    aqi = (pm25 - 150.5) * (300.0 - 201.0) / (250.4 - 150.5) + 201.0;
+  } else if (pm25 <= AQI_PM25_VERY_UNHEALTHY_MAX) {
+    // Very Unhealthy (201-300)
+    aqi = (pm25 - AQI_PM25_UNHEALTHY_MAX) * (300.0 - 201.0) /
+          (AQI_PM25_VERY_UNHEALTHY_MAX - AQI_PM25_UNHEALTHY_MAX) + 201.0;
     result.level = F("Very poor");
     result.colorCode = 0x800080;
   } else {
-    aqi = (pm25 - 250.5) * (500.0 - 301.0) / (500.4 - 250.5) + 301.0;
+    // Hazardous (301-500)
+    aqi = (pm25 - AQI_PM25_VERY_UNHEALTHY_MAX) * (500.0 - 301.0) /
+          (AQI_PM25_HAZARDOUS_MAX - AQI_PM25_VERY_UNHEALTHY_MAX) + 301.0;
+    // Cap at 500
+    aqi = min(aqi, 500.0f);
     result.level = F("Hazardous");
     result.colorCode = 0x7E0023;
   }
@@ -183,11 +210,16 @@ void loop() {
     }
   }
   
-  // Check WiFi connection
+  // Check WiFi connection with exponential backoff
   if (wifiConnected && WiFi.status() != WL_CONNECTED) {
-    DEBUG_WARN("WiFi lost - attempting reconnection");
-    wifiConnected = byteManager.connectWiFi();
+    DEBUG_WARN("WiFi connection lost");
+    wifiConnected = false;
   }
-  
+
+  // Attempt reconnection if not connected (with exponential backoff)
+  if (!wifiConnected && byteManager.canAttemptWiFiReconnect()) {
+    wifiConnected = byteManager.reconnectWiFi();
+  }
+
   delay(100);
 }
