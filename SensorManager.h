@@ -232,7 +232,8 @@ bool SensorManager::initBME68X(uint8_t address) {
 }
 
 void SensorManager::configureBsecSensors() {
-  // Enable all available BSEC outputs (ULP mode for better response)
+  // Configure BSEC outputs with LP mode for better CO2/VOC performance
+  // LP mode (3s interval) is required for reliable CO2 and VOC readings
   bsec_virtual_sensor_t sensorList[13] = {
     BSEC_OUTPUT_IAQ,
     BSEC_OUTPUT_STATIC_IAQ,
@@ -249,12 +250,14 @@ void SensorManager::configureBsecSensors() {
     BSEC_OUTPUT_GAS_PERCENTAGE
   };
 
-  // ULP mode: 0.33 Hz for gas + 0.1 Hz for temp/hum - better compromise
+  // LP mode: 0.33 Hz (3 second interval) - required for CO2/VOC outputs
+  // ULP mode does not provide reliable CO2 and VOC equivalent values
   // Available modes: BSEC_SAMPLE_RATE_ULP, BSEC_SAMPLE_RATE_LP, BSEC_SAMPLE_RATE_CONT
-  bme68x.updateSubscription(sensorList, 13, BSEC_SAMPLE_RATE_ULP);
-  
-  DEBUG_INFO("BSEC ULP Mode configured - Status: %d", bme68x.bsecStatus);
-  DEBUG_INFO("Response Time: ~1.4s (LP Mode), Update Rate: 0.33Hz, Power: ~0.1mA");
+  bme68x.updateSubscription(sensorList, 13, BSEC_SAMPLE_RATE_LP);
+
+  DEBUG_INFO("BSEC LP Mode configured - Status: %d", bme68x.bsecStatus);
+  DEBUG_INFO("Response Time: ~3s, Update Rate: 0.33Hz, Power: ~0.3mA");
+  DEBUG_INFO("CO2 and VOC outputs enabled with reliable sample rate");
 }
 
 bool SensorManager::initDS18B20() {

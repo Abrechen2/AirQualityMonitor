@@ -1,6 +1,6 @@
-# 🌪️ ESP32 Air Quality Monitor v1.0.0
+# 🌪️ ESP32 Air Quality Monitor v1.1.0
 
-![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen)
+![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen) ![Version](https://img.shields.io/badge/Version-1.1.0-blue)
 
 Enclosure on Printables: <https://www.printables.com/model/1400485-esp32-air-quality-monitor-beluftetes-sensorgehause>
 
@@ -46,7 +46,7 @@ This project implements a complete air‑quality monitoring station with:
 - **Wi‑Fi auto‑reconnect** with fallback modes
 
 ### 🔋 Energy Efficiency
-- **BSEC ULP mode** (Ultra Low Power)
+- **BSEC LP mode** (Low Power, 3s interval for reliable CO₂/VOC)
 - **PMS5003 sleep mode** between measurements
 - **Adaptive sensor timing**
 
@@ -222,11 +222,34 @@ Contributions are welcome! Please:
 ## 👨‍💻 Author
 
 **Abrechen2**
-Version 1.0.0 – Complete Stealth & Gas Sensor Integration + Byte Transmission
+
+### Version History
+- **v1.1.0** (2025) – Fixed BSEC CO₂/VOC zero values issue by switching from ULP to LP mode
+- **v1.0.0** (2025) – Complete Stealth & Gas Sensor Integration + Byte Transmission
 
 ## 📄 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+## 📋 Changelog
+
+### v1.1.0 (2025-11-15)
+**Fixed:**
+- Fixed BSEC CO₂ equivalent and VOC equivalent returning zero values
+- Changed BSEC sample rate from ULP mode to LP mode (3s interval)
+- CO₂ and VOC values now update reliably after initialization
+
+**Technical Details:**
+- BSEC ULP mode (Ultra Low Power) does not provide reliable CO₂/VOC equivalent outputs
+- Switched to BSEC LP mode (Low Power) with 3-second sampling interval
+- Slightly higher power consumption (~0.3mA vs ~0.1mA) but significantly better data quality
+- All BSEC outputs (IAQ, CO₂, VOC, temperature, humidity) now work correctly
+
+### v1.0.0 (2025)
+- Initial release with complete sensor integration
+- Stealth mode functionality
+- Binary data transmission protocol
+- Node-RED integration
 
 ## 📝 Support
 
