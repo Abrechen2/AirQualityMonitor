@@ -56,6 +56,12 @@ enum StealthMode {
   STEALTH_TEMP_ON  // Temporarily enabled
 };
 
+// ===== WIFI MANAGER CONFIGURATION =====
+// Uncomment to use WiFiManager library for credential management
+// This provides a web portal for WiFi configuration (more secure than hardcoded credentials)
+// Requires: WiFiManager library (https://github.com/tzapu/WiFiManager)
+// #define USE_WIFI_MANAGER 1
+
 // ===== DEBUG CONFIGURATION =====
 #define DEBUG_ENABLED 1
 

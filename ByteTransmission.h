@@ -69,10 +69,11 @@ private:
   
 public:
   ByteTransmissionManager();
-  
+
   bool connectWiFi();
   bool isTimeToSend();
   AQIResult sendDataAndGetAQI(const SensorData& data);
+  bool isConnected() { return WiFi.status() == WL_CONNECTED; }
   
 private:
   SensorDataPacket createPacket(const SensorData& data);
@@ -185,25 +186,36 @@ uint8_t ByteTransmissionManager::calculateChecksum(const SensorDataPacket& packe
 }
 
 bool ByteTransmissionManager::sendBinaryData(const SensorDataPacket& packet) {
+  if (!isConnected()) {
+    DEBUG_ERROR("WiFi not connected - cannot send data");
+    return false;
+  }
+
   HTTPClient http;
-  http.begin(NODERED_SEND_URL);
+  if (!http.begin(NODERED_SEND_URL)) {
+    DEBUG_ERROR("HTTP begin failed - invalid URL?");
+    return false;
+  }
+
   http.addHeader("Content-Type", "application/octet-stream");
   http.addHeader("X-Packet-Size", String(sizeof(SensorDataPacket)));
   http.setTimeout(5000);
-  
+
   DEBUG_INFO("Sending binary packet (%d bytes)", sizeof(SensorDataPacket));
-  
+
   // Send binary data
   int httpResponseCode = http.POST((uint8_t*)&packet, sizeof(SensorDataPacket));
-  
+
   bool success = false;
   if (httpResponseCode >= 200 && httpResponseCode < 300) {
     DEBUG_INFO("Binary data sent successfully, HTTP: %d", httpResponseCode);
     success = true;
+  } else if (httpResponseCode > 0) {
+    DEBUG_ERROR("HTTP POST failed with code: %d", httpResponseCode);
   } else {
-    DEBUG_ERROR("HTTP POST failed: %d", httpResponseCode);
+    DEBUG_ERROR("HTTP POST failed - connection error: %d", httpResponseCode);
   }
-  
+
   http.end();
   return success;
 }
@@ -211,8 +223,17 @@ bool ByteTransmissionManager::sendBinaryData(const SensorDataPacket& packet) {
 AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   AQIResult result;
 
+  if (!isConnected()) {
+    DEBUG_ERROR("WiFi not connected - cannot get AQI");
+    return result;
+  }
+
   HTTPClient http;
-  http.begin(NODERED_AQI_URL);
+  if (!http.begin(NODERED_AQI_URL)) {
+    DEBUG_ERROR("HTTP begin failed for AQI - invalid URL?");
+    return result;
+  }
+
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(3000);
   http.setReuse(false);

@@ -35,13 +35,13 @@ portMUX_TYPE ButtonHandler::selectMux = portMUX_INITIALIZER_UNLOCKED;
 
 // ===== ISR DEFINITION =====
 void IRAM_ATTR ButtonHandler::selectISR() {
+  portENTER_CRITICAL_ISR(&selectMux);
   unsigned long interruptTime = millis();
   if (interruptTime - lastInterruptTime > BUTTON_DEBOUNCE_MS) {
-    portENTER_CRITICAL_ISR(&selectMux);
     selectFlag = true;
     lastInterruptTime = interruptTime;
-    portEXIT_CRITICAL_ISR(&selectMux);
   }
+  portEXIT_CRITICAL_ISR(&selectMux);
 }
 
 // ===== IMPLEMENTATION =====
