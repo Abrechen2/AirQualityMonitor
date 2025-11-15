@@ -48,6 +48,17 @@ uint32_t aqiColorCode = 0x00FF00; // Green
 
 AQIResult calculateLocalAQI(const SensorData& data) {
   AQIResult result;
+
+  // Validate sensor availability
+  if (!data.pms5003Available) {
+    DEBUG_WARN("PMS5003 not available for AQI calculation");
+    result.success = false;
+    result.aqi = 0;
+    result.level = F("No Data");
+    result.colorCode = 0x808080;  // Gray
+    return result;
+  }
+
   int pm25 = data.pm2_5;
   float aqi = 0;
 
@@ -188,6 +199,4 @@ void loop() {
     DEBUG_WARN("WiFi lost - attempting reconnection");
     wifiConnected = byteManager.connectWiFi();
   }
-  
-  delay(100);
 }

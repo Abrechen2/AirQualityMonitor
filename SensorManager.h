@@ -39,23 +39,46 @@ struct SensorData {
   bool pms5003Available = false;
 };
 
+// ===== SENSOR STATE MACHINES =====
+enum DS18B20State {
+  DS18B20_IDLE,
+  DS18B20_REQUESTED,
+  DS18B20_READING
+};
+
+enum PMS5003State {
+  PMS5003_SLEEPING,
+  PMS5003_WAKING,
+  PMS5003_READING,
+  PMS5003_RETRY
+};
+
 // ===== SENSOR MANAGER CLASS =====
 class SensorManager {
 private:
   Bsec& bme68x;
   PMS& pms5003;
   PMS::DATA pmsData;
-  
+
   OneWire oneWire;
   DallasTemperature ds18b20;
-  
+
   SensorData currentData;
   unsigned long lastSensorRead = 0;
   unsigned long lastStateTime = 0;
-  
+
   // Sensor corrections
   float tempCorrection = DEFAULT_TEMP_CORRECTION;
   float humidityCorrection = DEFAULT_HUMIDITY_CORRECTION;
+
+  // Async state machines
+  DS18B20State ds18State = DS18B20_IDLE;
+  unsigned long ds18RequestTime = 0;
+  unsigned long lastDS18B20Read = 0;
+
+  PMS5003State pmsState = PMS5003_SLEEPING;
+  unsigned long pmsStateTime = 0;
+  uint8_t pmsRetryCount = 0;
 
 public:
   SensorManager(Bsec& bsec, PMS& pms);
@@ -77,9 +100,9 @@ private:
   bool readBME68X();
   bool readDS18B20();
   bool readPMS5003();
-  
-  void saveBsecState();
-  void loadBsecState();
+
+  bool saveBsecState();
+  bool loadBsecState();
   void printSensorStatus();
 };
 
@@ -121,39 +144,55 @@ bool SensorManager::init() {
 }
 
 bool SensorManager::update() {
-  if (millis() - lastSensorRead < SENSOR_READ_INTERVAL) {
-    return false;
-  }
-  
   bool dataUpdated = false;
-  
-  // Read BME68X
+
+  // Read BME68X (runs when BSEC is ready)
   if (currentData.bme68xAvailable) {
-    dataUpdated |= readBME68X();
+    if (bme68x.run()) {
+      dataUpdated |= readBME68X();
+    }
   }
-  
-  // Read DS18B20 (less frequently)
-  static unsigned long lastDS18B20Read = 0;
-  if (currentData.ds18b20Available && (millis() - lastDS18B20Read > 10000)) {
-    dataUpdated |= readDS18B20();
-    lastDS18B20Read = millis();
+
+  // Read DS18B20 asynchronously (every 10 seconds)
+  if (currentData.ds18b20Available) {
+    if (ds18State == DS18B20_IDLE && (millis() - lastDS18B20Read > 10000)) {
+      // Start new read cycle
+      readDS18B20();  // Starts the state machine
+    } else {
+      // Continue state machine
+      if (readDS18B20()) {
+        dataUpdated = true;
+        lastDS18B20Read = millis();
+      }
+    }
   }
-  
-  // Read PMS5003
+
+  // Read PMS5003 asynchronously (every SENSOR_READ_INTERVAL)
   if (currentData.pms5003Available) {
-    dataUpdated |= readPMS5003();
+    if (pmsState == PMS5003_SLEEPING && (millis() - lastSensorRead >= SENSOR_READ_INTERVAL)) {
+      // Start new read cycle
+      readPMS5003();  // Starts the state machine
+    } else {
+      // Continue state machine
+      if (readPMS5003()) {
+        dataUpdated = true;
+      }
+    }
   }
-  
+
   // Save BSEC state every 6h
   if (currentData.bme68xAvailable && (millis() - lastStateTime > BSEC_STATE_SAVE_INTERVAL)) {
-    saveBsecState();
-    lastStateTime = millis();
+    if (saveBsecState()) {
+      lastStateTime = millis();
+    } else {
+      DEBUG_WARN("BSEC state save failed - will retry in next interval");
+    }
   }
-  
+
   if (dataUpdated) {
     lastSensorRead = millis();
   }
-  
+
   return dataUpdated;
 }
 
@@ -290,102 +329,174 @@ bool SensorManager::readBME68X() {
 }
 
 bool SensorManager::readDS18B20() {
-  ds18b20.requestTemperatures();
-  delay(750); // Conversion time for 12-bit
-  
-  float temp = ds18b20.getTempCByIndex(0);
-  
-  if (temp == DEVICE_DISCONNECTED_C) {
-    DEBUG_WARN("DS18B20 read failed");
-    return false;
-  }
-  
-  currentData.externalTemp = temp;
-  return true;
-}
+  // Non-blocking state machine for DS18B20
+  switch (ds18State) {
+    case DS18B20_IDLE:
+      // Start temperature conversion
+      ds18b20.requestTemperatures();
+      ds18RequestTime = millis();
+      ds18State = DS18B20_REQUESTED;
+      return false;
 
-bool SensorManager::readPMS5003() {
-  pms5003.wakeUp();
-  delay(2000); // PMS5003 wake up time optimised
+    case DS18B20_REQUESTED:
+      // Wait for 750ms conversion time
+      if (millis() - ds18RequestTime >= 750) {
+        ds18State = DS18B20_READING;
+      }
+      return false;
 
-  for (int i = 0; i < 3; i++) {
-    pms5003.requestRead();
-    if (pms5003.readUntil(pmsData, 1000)) {
-      currentData.pm1_0 = pmsData.PM_AE_UG_1_0;
-      currentData.pm2_5 = pmsData.PM_AE_UG_2_5;
-      currentData.pm10 = pmsData.PM_AE_UG_10_0;
-      pms5003.sleep();
+    case DS18B20_READING:
+      // Read temperature
+      float temp = ds18b20.getTempCByIndex(0);
+      ds18State = DS18B20_IDLE;
+
+      if (temp == DEVICE_DISCONNECTED_C) {
+        DEBUG_WARN("DS18B20 read failed");
+        return false;
+      }
+
+      currentData.externalTemp = temp;
       return true;
-    }
   }
-
-  DEBUG_WARN("PMS5003 read failed after 3 attempts");
-  pms5003.sleep();
   return false;
 }
 
-void SensorManager::saveBsecState() {
-  if (!currentData.bme68xAvailable || !currentData.bsecCalibrated) return;
-  
+bool SensorManager::readPMS5003() {
+  // Non-blocking state machine for PMS5003
+  switch (pmsState) {
+    case PMS5003_SLEEPING:
+      // Wake up sensor
+      pms5003.wakeUp();
+      pmsStateTime = millis();
+      pmsRetryCount = 0;
+      pmsState = PMS5003_WAKING;
+      return false;
+
+    case PMS5003_WAKING:
+      // Wait for 2000ms wake up time
+      if (millis() - pmsStateTime >= 2000) {
+        pms5003.requestRead();
+        pmsStateTime = millis();
+        pmsState = PMS5003_READING;
+      }
+      return false;
+
+    case PMS5003_READING:
+      // Try to read data with 1000ms timeout
+      if (pms5003.readUntil(pmsData, 50)) {  // Non-blocking check
+        currentData.pm1_0 = pmsData.PM_AE_UG_1_0;
+        currentData.pm2_5 = pmsData.PM_AE_UG_2_5;
+        currentData.pm10 = pmsData.PM_AE_UG_10_0;
+        pms5003.sleep();
+        pmsState = PMS5003_SLEEPING;
+        return true;
+      }
+
+      // Check timeout
+      if (millis() - pmsStateTime >= 1000) {
+        pmsRetryCount++;
+        if (pmsRetryCount >= 2) {
+          // Failed after 2 attempts
+          DEBUG_WARN("PMS5003 read failed after %d attempts", pmsRetryCount);
+          pms5003.sleep();
+          pmsState = PMS5003_SLEEPING;
+          return false;
+        } else {
+          // Retry
+          pms5003.requestRead();
+          pmsStateTime = millis();
+          pmsState = PMS5003_READING;
+        }
+      }
+      return false;
+
+    case PMS5003_RETRY:
+      // This state is not used anymore, merged into READING
+      pmsState = PMS5003_SLEEPING;
+      return false;
+  }
+  return false;
+}
+
+bool SensorManager::saveBsecState() {
+  if (!currentData.bme68xAvailable || !currentData.bsecCalibrated) {
+    return false;
+  }
+
   uint8_t bsecState[BSEC_MAX_STATE_BLOB_SIZE] = {0};
   uint8_t workBuffer[BSEC_MAX_WORKBUFFER_SIZE] = {0};
   uint32_t serializedStateLength = 0;
-  
+
   bsec_library_return_t status = bsec_get_state(0, bsecState, sizeof(bsecState), workBuffer, sizeof(workBuffer), &serializedStateLength);
-  
-  if (status == BSEC_OK) {
-    if (serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE - 4) {
-      DEBUG_ERROR("BSEC state too large: %d bytes", serializedStateLength);
-      return;
-    }
 
-    if (BSEC_BASELINE_EEPROM_ADDR + 4 + serializedStateLength > EEPROM.length()) {
-      DEBUG_ERROR("EEPROM overflow prevented");
-      return;
-    }
-
-    // Store length
-    EEPROM.put(BSEC_BASELINE_EEPROM_ADDR, serializedStateLength);
-
-    // Save state
-    for (uint32_t i = 0; i < serializedStateLength; i++) {
-      EEPROM.write(BSEC_BASELINE_EEPROM_ADDR + 4 + i, bsecState[i]);
-    }
-
-    EEPROM.commit();
-    DEBUG_INFO("BSEC state saved (%d bytes)", serializedStateLength);
-  } else {
-    DEBUG_WARN("BSEC state save failed: %d", status);
+  if (status != BSEC_OK) {
+    DEBUG_ERROR("BSEC state get failed: %d", status);
+    return false;
   }
+
+  if (serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE - 4) {
+    DEBUG_ERROR("BSEC state too large: %d bytes", serializedStateLength);
+    return false;
+  }
+
+  if (serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE) {
+    DEBUG_ERROR("BSEC state exceeds buffer size");
+    return false;
+  }
+
+  if (BSEC_BASELINE_EEPROM_ADDR + 4 + serializedStateLength > EEPROM.length()) {
+    DEBUG_ERROR("EEPROM overflow prevented");
+    return false;
+  }
+
+  // Store length
+  EEPROM.put(BSEC_BASELINE_EEPROM_ADDR, serializedStateLength);
+
+  // Save state
+  for (uint32_t i = 0; i < serializedStateLength; i++) {
+    EEPROM.write(BSEC_BASELINE_EEPROM_ADDR + 4 + i, bsecState[i]);
+  }
+
+  if (!EEPROM.commit()) {
+    DEBUG_ERROR("EEPROM commit failed");
+    return false;
+  }
+
+  DEBUG_INFO("BSEC state saved (%d bytes)", serializedStateLength);
+  return true;
 }
 
-void SensorManager::loadBsecState() {
-  if (!currentData.bme68xAvailable) return;
-  
+bool SensorManager::loadBsecState() {
+  if (!currentData.bme68xAvailable) {
+    return false;
+  }
+
   uint32_t serializedStateLength = 0;
   EEPROM.get(BSEC_BASELINE_EEPROM_ADDR, serializedStateLength);
-  
+
   // Plausibility check
   if (serializedStateLength == 0 || serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE) {
     DEBUG_WARN("No valid BSEC state found - starting fresh");
-    return;
+    return false;
   }
-  
+
   uint8_t bsecState[BSEC_MAX_STATE_BLOB_SIZE] = {0};
   uint8_t workBuffer[BSEC_MAX_WORKBUFFER_SIZE] = {0};
-  
+
   // Load state
   for (uint32_t i = 0; i < serializedStateLength; i++) {
     bsecState[i] = EEPROM.read(BSEC_BASELINE_EEPROM_ADDR + 4 + i);
   }
-  
+
   bsec_library_return_t status = bsec_set_state(bsecState, serializedStateLength, workBuffer, sizeof(workBuffer));
 
   if (status == BSEC_OK) {
     DEBUG_INFO("BSEC state loaded (%d bytes)", serializedStateLength);
     currentData.bsecCalibrated = true;
+    return true;
   } else {
-    DEBUG_WARN("BSEC state load failed: %d", status);
+    DEBUG_ERROR("BSEC state load failed: %d", status);
+    return false;
   }
 }
 
