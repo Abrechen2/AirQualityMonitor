@@ -112,10 +112,14 @@ SensorManager::SensorManager(Bsec& bsec, PMS& pms)
 
 bool SensorManager::init() {
   DEBUG_INFO("Initializing sensors...");
-  
-  // EEPROM for BSEC state
-  EEPROM.begin(BSEC_MAX_STATE_BLOB_SIZE + 10);
-  
+
+  // EEPROM for BSEC state (needs 221 bytes minimum)
+  if (!EEPROM.begin(512)) {  // Use 512 bytes to be safe
+    DEBUG_ERROR("EEPROM initialization failed!");
+  } else {
+    DEBUG_INFO("EEPROM initialized (512 bytes)");
+  }
+
   bool success = true;
   
   // Initialize BME68X
@@ -146,10 +150,19 @@ bool SensorManager::init() {
 bool SensorManager::update() {
   bool dataUpdated = false;
 
-  // Read BME68X (runs when BSEC is ready)
+  // Read BME68X - BSEC must be called continuously in every loop
   if (currentData.bme68xAvailable) {
     if (bme68x.run()) {
+      // New data available from BSEC
       dataUpdated |= readBME68X();
+    } else {
+      // Check for errors
+      if (bme68x.bsecStatus != BSEC_OK) {
+        DEBUG_ERROR("BSEC error: %d", bme68x.bsecStatus);
+      }
+      if (bme68x.bme68xStatus != BME68X_OK) {
+        DEBUG_ERROR("BME68X sensor error: %d", bme68x.bme68xStatus);
+      }
     }
   }
 
@@ -207,21 +220,47 @@ bool SensorManager::initBME68X(uint8_t address) {
   try {
     bme68x.begin(address, Wire);
 
-    if (bme68x.bsecStatus != BSEC_OK || bme68x.bme68xStatus != BME68X_OK) {
-      DEBUG_ERROR("BME68X init failed at 0x%02X - BSEC: %d, BME68X: %d", address, bme68x.bsecStatus, bme68x.bme68xStatus);
+    DEBUG_INFO("After begin() - BSEC status: %d, BME68X status: %d", bme68x.bsecStatus, bme68x.bme68xStatus);
+
+    if (bme68x.bsecStatus != BSEC_OK) {
+      DEBUG_ERROR("BSEC init failed with status: %d", bme68x.bsecStatus);
+      if (bme68x.bsecStatus < BSEC_OK) {
+        DEBUG_ERROR("BSEC Error Code (negative = error)");
+      }
+      currentData.bme68xAvailable = false;
+      return false;
+    }
+
+    if (bme68x.bme68xStatus != BME68X_OK) {
+      DEBUG_ERROR("BME68X sensor init failed with status: %d", bme68x.bme68xStatus);
       currentData.bme68xAvailable = false;
       return false;
     }
 
     // Mark sensor as available so state can be loaded
     currentData.bme68xAvailable = true;
+    DEBUG_INFO("BME68X communication established successfully");
 
     // Configure BSEC sensors
     configureBsecSensors();
 
-    // Load stored state
-    loadBsecState();
+    DEBUG_INFO("After configureBsecSensors() - BSEC status: %d", bme68x.bsecStatus);
+
+    if (bme68x.bsecStatus != BSEC_OK) {
+      DEBUG_ERROR("BSEC configuration failed with status: %d", bme68x.bsecStatus);
+      currentData.bme68xAvailable = false;
+      return false;
+    }
+
+    // Load stored state (non-critical if it fails)
+    if (loadBsecState()) {
+      DEBUG_INFO("Previous BSEC calibration state loaded");
+    } else {
+      DEBUG_INFO("Starting fresh calibration (no saved state)");
+    }
+
     DEBUG_INFO("BME68X with BSEC initialized successfully");
+    DEBUG_INFO("Sensor will provide first readings after warm-up (~3s in LP mode)");
     return true;
 
   } catch (...) {
@@ -305,16 +344,15 @@ bool SensorManager::initPMS5003() {
 }
 
 bool SensorManager::readBME68X() {
-  if (!bme68x.run()) {
-    return false;
-  }
-  
+  // Don't call run() again - already called in update()
+  // Just read the latest values from BSEC
+
   // Compensated values from BSEC
   currentData.temperature = bme68x.temperature + tempCorrection;
   currentData.humidity = bme68x.humidity + humidityCorrection;
   currentData.pressure = bme68x.pressure / 100.0; // hPa
   currentData.gasResistance = bme68x.gasResistance;
-  
+
   // BSEC gas algorithm outputs
   currentData.iaq = bme68x.iaq;
   currentData.iaqAccuracy = bme68x.iaqAccuracy;
@@ -324,10 +362,18 @@ bool SensorManager::readBME68X() {
   currentData.co2Accuracy = bme68x.co2Accuracy;
   currentData.breathVocEquivalent = bme68x.breathVocEquivalent;
   currentData.breathVocAccuracy = bme68x.breathVocAccuracy;
-  
+
   // Calibration status
   currentData.bsecCalibrated = (currentData.iaqAccuracy >= 2);
-  
+
+  // Debug output for first few readings
+  static uint8_t debugCount = 0;
+  if (debugCount < 5) {
+    DEBUG_INFO("BME68X Read - Temp: %.1f°C, Hum: %.1f%%, Press: %.1f hPa, Gas: %.0f Ohm",
+               currentData.temperature, currentData.humidity, currentData.pressure, currentData.gasResistance);
+    debugCount++;
+  }
+
   return true;
 }
 
