@@ -1,7 +1,7 @@
-// ===== AIR QUALITY MONITOR V6 - STEALTH & BSEC OPTIMIZED =====
+// ===== AIR QUALITY MONITOR V1 - STEALTH & BSEC OPTIMIZED =====
 // Advanced version with BSEC ULP Mode, Stealth Control, CO2/VOC, Byte Transmission
 // Author: Dennis Wittke  
-// Version: 6.0 - Complete Stealth & Gas Sensor Integration + Byte Transmission
+// Version: 1.0 - Complete Stealth & Gas Sensor Integration + Byte Transmission
 // Date: 2025
 
 #include <Arduino.h>
