@@ -1,7 +1,7 @@
-// ===== AIR QUALITY MONITOR V1 - STEALTH & BSEC OPTIMIZED =====
-// Advanced version with BSEC ULP Mode, Stealth Control, CO2/VOC, Byte Transmission
-// Author: Dennis Wittke  
-// Version: 1.0 - Complete Stealth & Gas Sensor Integration + Byte Transmission
+// ===== AIR QUALITY MONITOR V1.1 - STEALTH & BSEC OPTIMIZED =====
+// Advanced version with BSEC LP Mode, Stealth Control, CO2/VOC, Byte Transmission
+// Author: Dennis Wittke
+// Version: 1.1.0 - Fixed BSEC CO2/VOC Zero Values (LP Mode)
 // Date: 2025
 
 #include <Arduino.h>
@@ -144,13 +144,36 @@ void setup() {
 }
 
 void loop() {
+  static unsigned long lastDebugTime = 0;
+  static uint8_t loopDebugCount = 0;
+
   // Update system components
   buttonHandler.update();
-  
+
   // Read sensors
   if (sensorManager.update()) {
     SensorData data = sensorManager.getData();
 
+    // Enhanced debug output for sensor data
+    if (loopDebugCount < 10 || (millis() - lastDebugTime > 30000)) {
+      DEBUG_INFO("=== Sensor Data Update ===");
+      if (data.bme68xAvailable) {
+        DEBUG_INFO("BME68X - Temp: %.1f°C, Hum: %.1f%%, Press: %.1f hPa, Gas: %.0f Ohm",
+                   data.temperature, data.humidity, data.pressure, data.gasResistance);
+        DEBUG_INFO("BSEC - IAQ: %.0f (acc:%d), CO2: %.0f ppm (acc:%d), VOC: %.1f mg/m3 (acc:%d)",
+                   data.iaq, data.iaqAccuracy,
+                   data.co2Equivalent, data.co2Accuracy,
+                   data.breathVocEquivalent, data.breathVocAccuracy);
+      } else {
+        DEBUG_WARN("BME68X not available!");
+      }
+      if (data.pms5003Available) {
+        DEBUG_INFO("PMS5003 - PM1.0: %d, PM2.5: %d, PM10: %d µg/m³",
+                   data.pm1_0, data.pm2_5, data.pm10);
+      }
+      lastDebugTime = millis();
+      loopDebugCount++;
+    }
 
     AQIResult local = calculateLocalAQI(data);
 
@@ -184,16 +207,8 @@ void loop() {
 
     displayManager.updateDisplay(data, calculatedAQI, aqiLevel, wifiConnected, nodeRedResponding);
     ledManager.updateLEDs(aqiColorCode);
-
-    // Debug output for BSEC values
-    if (data.bme68xAvailable) {
-      DEBUG_INFO("BSEC - CO2: %.0f ppm (acc:%d), VOC: %.1f mg/m3 (acc:%d), IAQ: %.0f (acc:%d)",
-                 data.co2Equivalent, data.co2Accuracy,
-                 data.breathVocEquivalent, data.breathVocAccuracy,
-                 data.iaq, data.iaqAccuracy);
-    }
   }
-  
+
   // Check WiFi connection
   if (wifiConnected && WiFi.status() != WL_CONNECTED) {
     DEBUG_WARN("WiFi lost - attempting reconnection");

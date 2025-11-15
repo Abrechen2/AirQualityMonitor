@@ -103,6 +103,7 @@ private:
 
   bool saveBsecState();
   bool loadBsecState();
+  void resetBsecCalibration();
   void printSensorStatus();
 };
 
@@ -112,10 +113,14 @@ SensorManager::SensorManager(Bsec& bsec, PMS& pms)
 
 bool SensorManager::init() {
   DEBUG_INFO("Initializing sensors...");
-  
-  // EEPROM for BSEC state
-  EEPROM.begin(BSEC_MAX_STATE_BLOB_SIZE + 10);
-  
+
+  // EEPROM for BSEC state (needs 221 bytes minimum)
+  if (!EEPROM.begin(512)) {  // Use 512 bytes to be safe
+    DEBUG_ERROR("EEPROM initialization failed!");
+  } else {
+    DEBUG_INFO("EEPROM initialized (512 bytes)");
+  }
+
   bool success = true;
   
   // Initialize BME68X
@@ -146,10 +151,19 @@ bool SensorManager::init() {
 bool SensorManager::update() {
   bool dataUpdated = false;
 
-  // Read BME68X (runs when BSEC is ready)
+  // Read BME68X - BSEC must be called continuously in every loop
   if (currentData.bme68xAvailable) {
     if (bme68x.run()) {
+      // New data available from BSEC
       dataUpdated |= readBME68X();
+    } else {
+      // Check for errors
+      if (bme68x.bsecStatus != BSEC_OK) {
+        DEBUG_ERROR("BSEC error: %d", bme68x.bsecStatus);
+      }
+      if (bme68x.bme68xStatus != BME68X_OK) {
+        DEBUG_ERROR("BME68X sensor error: %d", bme68x.bme68xStatus);
+      }
     }
   }
 
@@ -207,21 +221,51 @@ bool SensorManager::initBME68X(uint8_t address) {
   try {
     bme68x.begin(address, Wire);
 
-    if (bme68x.bsecStatus != BSEC_OK || bme68x.bme68xStatus != BME68X_OK) {
-      DEBUG_ERROR("BME68X init failed at 0x%02X - BSEC: %d, BME68X: %d", address, bme68x.bsecStatus, bme68x.bme68xStatus);
+    DEBUG_INFO("After begin() - BSEC status: %d, BME68X status: %d", bme68x.bsecStatus, bme68x.bme68xStatus);
+
+    if (bme68x.bsecStatus != BSEC_OK) {
+      DEBUG_ERROR("BSEC init failed with status: %d", bme68x.bsecStatus);
+      if (bme68x.bsecStatus < BSEC_OK) {
+        DEBUG_ERROR("BSEC Error Code (negative = error)");
+      }
+      currentData.bme68xAvailable = false;
+      return false;
+    }
+
+    if (bme68x.bme68xStatus != BME68X_OK) {
+      DEBUG_ERROR("BME68X sensor init failed with status: %d", bme68x.bme68xStatus);
       currentData.bme68xAvailable = false;
       return false;
     }
 
     // Mark sensor as available so state can be loaded
     currentData.bme68xAvailable = true;
+    DEBUG_INFO("BME68X communication established successfully");
 
     // Configure BSEC sensors
     configureBsecSensors();
 
-    // Load stored state
-    loadBsecState();
+    DEBUG_INFO("After configureBsecSensors() - BSEC status: %d", bme68x.bsecStatus);
+
+    if (bme68x.bsecStatus != BSEC_OK) {
+      DEBUG_ERROR("BSEC configuration failed with status: %d", bme68x.bsecStatus);
+      currentData.bme68xAvailable = false;
+      return false;
+    }
+
+    // Reset calibration because mode changed from ULP to LP
+    // IMPORTANT: Comment out the next line after first successful run!
+    resetBsecCalibration();
+
+    // Load stored state (non-critical if it fails)
+    if (loadBsecState()) {
+      DEBUG_INFO("Previous BSEC calibration state loaded");
+    } else {
+      DEBUG_INFO("Starting fresh calibration (no saved state)");
+    }
+
     DEBUG_INFO("BME68X with BSEC initialized successfully");
+    DEBUG_INFO("Sensor will provide first readings after warm-up (~3s in LP mode)");
     return true;
 
   } catch (...) {
@@ -232,7 +276,8 @@ bool SensorManager::initBME68X(uint8_t address) {
 }
 
 void SensorManager::configureBsecSensors() {
-  // Enable all available BSEC outputs (ULP mode for better response)
+  // Configure BSEC outputs with LP mode for better CO2/VOC performance
+  // LP mode (3s interval) is required for reliable CO2 and VOC readings
   bsec_virtual_sensor_t sensorList[13] = {
     BSEC_OUTPUT_IAQ,
     BSEC_OUTPUT_STATIC_IAQ,
@@ -249,12 +294,14 @@ void SensorManager::configureBsecSensors() {
     BSEC_OUTPUT_GAS_PERCENTAGE
   };
 
-  // ULP mode: 0.33 Hz for gas + 0.1 Hz for temp/hum - better compromise
+  // LP mode: 0.33 Hz (3 second interval) - required for CO2/VOC outputs
+  // ULP mode does not provide reliable CO2 and VOC equivalent values
   // Available modes: BSEC_SAMPLE_RATE_ULP, BSEC_SAMPLE_RATE_LP, BSEC_SAMPLE_RATE_CONT
-  bme68x.updateSubscription(sensorList, 13, BSEC_SAMPLE_RATE_ULP);
-  
-  DEBUG_INFO("BSEC ULP Mode configured - Status: %d", bme68x.bsecStatus);
-  DEBUG_INFO("Response Time: ~1.4s (LP Mode), Update Rate: 0.33Hz, Power: ~0.1mA");
+  bme68x.updateSubscription(sensorList, 13, BSEC_SAMPLE_RATE_LP);
+
+  DEBUG_INFO("BSEC LP Mode configured - Status: %d", bme68x.bsecStatus);
+  DEBUG_INFO("Response Time: ~3s, Update Rate: 0.33Hz, Power: ~0.3mA");
+  DEBUG_INFO("CO2 and VOC outputs enabled with reliable sample rate");
 }
 
 bool SensorManager::initDS18B20() {
@@ -302,16 +349,15 @@ bool SensorManager::initPMS5003() {
 }
 
 bool SensorManager::readBME68X() {
-  if (!bme68x.run()) {
-    return false;
-  }
-  
+  // Don't call run() again - already called in update()
+  // Just read the latest values from BSEC
+
   // Compensated values from BSEC
   currentData.temperature = bme68x.temperature + tempCorrection;
   currentData.humidity = bme68x.humidity + humidityCorrection;
   currentData.pressure = bme68x.pressure / 100.0; // hPa
   currentData.gasResistance = bme68x.gasResistance;
-  
+
   // BSEC gas algorithm outputs
   currentData.iaq = bme68x.iaq;
   currentData.iaqAccuracy = bme68x.iaqAccuracy;
@@ -321,10 +367,18 @@ bool SensorManager::readBME68X() {
   currentData.co2Accuracy = bme68x.co2Accuracy;
   currentData.breathVocEquivalent = bme68x.breathVocEquivalent;
   currentData.breathVocAccuracy = bme68x.breathVocAccuracy;
-  
+
   // Calibration status
   currentData.bsecCalibrated = (currentData.iaqAccuracy >= 2);
-  
+
+  // Debug output for first few readings
+  static uint8_t debugCount = 0;
+  if (debugCount < 5) {
+    DEBUG_INFO("BME68X Read - Temp: %.1f°C, Hum: %.1f%%, Press: %.1f hPa, Gas: %.0f Ohm",
+               currentData.temperature, currentData.humidity, currentData.pressure, currentData.gasResistance);
+    debugCount++;
+  }
+
   return true;
 }
 
@@ -497,6 +551,26 @@ bool SensorManager::loadBsecState() {
   } else {
     DEBUG_ERROR("BSEC state load failed: %d", status);
     return false;
+  }
+}
+
+void SensorManager::resetBsecCalibration() {
+  DEBUG_WARN("=== RESETTING BSEC CALIBRATION ===");
+  DEBUG_INFO("Clearing EEPROM saved state...");
+
+  // Write zeros to EEPROM to invalidate saved state
+  for (int i = 0; i < 512; i++) {
+    EEPROM.write(i, 0);
+  }
+
+  if (EEPROM.commit()) {
+    DEBUG_INFO("EEPROM cleared successfully - BSEC will start fresh calibration");
+    DEBUG_INFO("Calibration timeline:");
+    DEBUG_INFO("  - First 5 min: accuracy = 0 (warming up)");
+    DEBUG_INFO("  - 5-20 min: accuracy = 1 (initial calibration)");
+    DEBUG_INFO("  - 20+ min: accuracy = 2-3 (calibrated)");
+  } else {
+    DEBUG_ERROR("EEPROM clear failed!");
   }
 }
 

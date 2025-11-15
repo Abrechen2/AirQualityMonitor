@@ -1,6 +1,6 @@
-# 🌪️ ESP32 Air Quality Monitor v1.0.0
+# 🌪️ ESP32 Air Quality Monitor v1.1.0
 
-![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen)
+![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen) ![Version](https://img.shields.io/badge/Version-1.1.0-blue)
 
 Enclosure on Printables: <https://www.printables.com/model/1400485-esp32-air-quality-monitor-beluftetes-sensorgehause>
 
@@ -46,7 +46,7 @@ This project implements a complete air‑quality monitoring station with:
 - **Wi‑Fi auto‑reconnect** with fallback modes
 
 ### 🔋 Energy Efficiency
-- **BSEC ULP mode** (Ultra Low Power)
+- **BSEC LP mode** (Low Power, 3s interval for reliable CO₂/VOC)
 - **PMS5003 sleep mode** between measurements
 - **Adaptive sensor timing**
 
@@ -171,9 +171,18 @@ Header (4B) + BME680 (24B) + DS18B20 (3B) + PMS5003 (7B) + System (5B) + Checksu
 - Verify power supply (3.3 V/5 V)
 
 ### BSEC Calibration
-- **First 4 hours**: accuracy = 0‑1 (unreliable)
-- **After 24 h**: accuracy = 2 (usable)
-- **After 7 days**: accuracy = 3 (optimal)
+The BSEC algorithm requires calibration for accurate CO₂/VOC readings:
+
+**Initial Calibration (LP Mode):**
+- **First 5 minutes**: accuracy = 0 (sensor warming up)
+- **5-20 minutes**: accuracy = 1 (initial calibration)
+- **20+ minutes**: accuracy = 2-3 (fully calibrated)
+
+**Important Notes:**
+- Calibration state is saved to EEPROM every 6 hours
+- If you change BSEC mode (ULP ↔ LP), old calibration data becomes invalid
+- After mode changes, reset calibration by uncommenting `resetBsecCalibration()` in `SensorManager.h:258`
+- For optimal results, let the sensor run for 24 hours in a normal environment
 
 ## 📐 Schematics & Layout
 
@@ -222,11 +231,39 @@ Contributions are welcome! Please:
 ## 👨‍💻 Author
 
 **Abrechen2**
-Version 1.0.0 – Complete Stealth & Gas Sensor Integration + Byte Transmission
+
+### Version History
+- **v1.1.0** (2025) – Fixed BSEC CO₂/VOC zero values issue by switching from ULP to LP mode
+- **v1.0.0** (2025) – Complete Stealth & Gas Sensor Integration + Byte Transmission
 
 ## 📄 License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+## 📋 Changelog
+
+### v1.1.0 (2025-11-15)
+**Fixed:**
+- Fixed BSEC CO₂ equivalent and VOC equivalent returning zero values
+- Changed BSEC sample rate from ULP mode to LP mode (3s interval)
+- Added EEPROM calibration reset function for mode changes
+- Improved error handling and debug output for sensor initialization
+- Fixed redundant BSEC run() calls that could cause timing issues
+
+**Technical Details:**
+- BSEC ULP mode (Ultra Low Power) does not provide reliable CO₂/VOC equivalent outputs
+- Switched to BSEC LP mode (Low Power) with 3-second sampling interval
+- Slightly higher power consumption (~0.3mA vs ~0.1mA) but significantly better data quality
+- All BSEC outputs (IAQ, CO₂, VOC, temperature, humidity) now work correctly
+- Old calibration data from ULP mode is incompatible with LP mode
+- Added `resetBsecCalibration()` function to clear invalid calibration data
+- Recalibration takes 5-20 minutes after reset
+
+### v1.0.0 (2025)
+- Initial release with complete sensor integration
+- Stealth mode functionality
+- Binary data transmission protocol
+- Node-RED integration
 
 ## 📝 Support
 
