@@ -255,7 +255,7 @@ bool SensorManager::initBME68X(uint8_t address) {
 
     // Reset calibration because mode changed from ULP to LP
     // IMPORTANT: Comment out the next line after first successful run!
-    resetBsecCalibration();
+    //resetBsecCalibration();
 
     // Load stored state (non-critical if it fails)
     if (loadBsecState()) {
