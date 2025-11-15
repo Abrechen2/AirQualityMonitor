@@ -103,6 +103,7 @@ private:
 
   bool saveBsecState();
   bool loadBsecState();
+  void resetBsecCalibration();
   void printSensorStatus();
 };
 
@@ -251,6 +252,10 @@ bool SensorManager::initBME68X(uint8_t address) {
       currentData.bme68xAvailable = false;
       return false;
     }
+
+    // Reset calibration because mode changed from ULP to LP
+    // IMPORTANT: Comment out the next line after first successful run!
+    resetBsecCalibration();
 
     // Load stored state (non-critical if it fails)
     if (loadBsecState()) {
@@ -546,6 +551,26 @@ bool SensorManager::loadBsecState() {
   } else {
     DEBUG_ERROR("BSEC state load failed: %d", status);
     return false;
+  }
+}
+
+void SensorManager::resetBsecCalibration() {
+  DEBUG_WARN("=== RESETTING BSEC CALIBRATION ===");
+  DEBUG_INFO("Clearing EEPROM saved state...");
+
+  // Write zeros to EEPROM to invalidate saved state
+  for (int i = 0; i < 512; i++) {
+    EEPROM.write(i, 0);
+  }
+
+  if (EEPROM.commit()) {
+    DEBUG_INFO("EEPROM cleared successfully - BSEC will start fresh calibration");
+    DEBUG_INFO("Calibration timeline:");
+    DEBUG_INFO("  - First 5 min: accuracy = 0 (warming up)");
+    DEBUG_INFO("  - 5-20 min: accuracy = 1 (initial calibration)");
+    DEBUG_INFO("  - 20+ min: accuracy = 2-3 (calibrated)");
+  } else {
+    DEBUG_ERROR("EEPROM clear failed!");
   }
 }
 
