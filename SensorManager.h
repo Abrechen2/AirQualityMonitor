@@ -54,6 +54,13 @@ enum PMS5003State {
 };
 
 // ===== SENSOR MANAGER CLASS =====
+/**
+ * @class SensorManager
+ * @brief Manages all sensor operations including BME68X, DS18B20, and PMS5003
+ * 
+ * This class handles initialization, reading, and state management for all sensors.
+ * It uses asynchronous state machines for non-blocking sensor operations.
+ */
 class SensorManager {
 private:
   Bsec& bme68x;
@@ -81,13 +88,41 @@ private:
   uint8_t pmsRetryCount = 0;
 
 public:
+  /**
+   * @brief Constructor
+   * @param bsec Reference to BSEC sensor instance
+   * @param pms Reference to PMS5003 sensor instance
+   */
   SensorManager(Bsec& bsec, PMS& pms);
   
+  /**
+   * @brief Initialize all sensors
+   * @return true if at least one sensor initialized successfully
+   */
   bool init();
-  bool update();
-  SensorData getData() { return currentData; }
   
+  /**
+   * @brief Update sensor readings (non-blocking)
+   * @return true if new data is available
+   */
+  bool update();
+  
+  /**
+   * @brief Get current sensor data
+   * @return Const reference to current sensor data
+   */
+  const SensorData& getData() const { return currentData; }
+  
+  /**
+   * @brief Set temperature correction offset
+   * @param correction Temperature offset in degrees Celsius
+   */
   void setTempCorrection(float correction) { tempCorrection = correction; }
+  
+  /**
+   * @brief Set humidity correction offset
+   * @param correction Humidity offset in percent
+   */
   void setHumidityCorrection(float correction) { humidityCorrection = correction; }
 
 private:
@@ -105,6 +140,16 @@ private:
   bool loadBsecState();
   void resetBsecCalibration();
   void printSensorStatus();
+  
+  // Validation functions
+  bool validateSensorData(const SensorData& data);
+  bool isValidTemperature(float temp);
+  bool isValidHumidity(float humidity);
+  bool isValidPressure(float pressure);
+  bool isValidIAQ(float iaq);
+  bool isValidCO2(float co2);
+  bool isValidVOC(float voc);
+  bool isValidPM(uint16_t pm);
 };
 
 // ===== IMPLEMENTATION =====
@@ -167,9 +212,9 @@ bool SensorManager::update() {
     }
   }
 
-  // Read DS18B20 asynchronously (every 10 seconds)
+  // Read DS18B20 asynchronously
   if (currentData.ds18b20Available) {
-    if (ds18State == DS18B20_IDLE && (millis() - lastDS18B20Read > 10000)) {
+    if (ds18State == DS18B20_IDLE && (millis() - lastDS18B20Read > DS18B20_READ_INTERVAL_MS)) {
       // Start new read cycle
       readDS18B20();  // Starts the state machine
     } else {
@@ -352,20 +397,32 @@ bool SensorManager::readBME68X() {
   // Don't call run() again - already called in update()
   // Just read the latest values from BSEC
 
-  // Compensated values from BSEC
-  currentData.temperature = bme68x.temperature + tempCorrection;
-  currentData.humidity = bme68x.humidity + humidityCorrection;
-  currentData.pressure = bme68x.pressure / 100.0; // hPa
-  currentData.gasResistance = bme68x.gasResistance;
+  // Compensated values from BSEC with validation
+  float rawTemp = bme68x.temperature + tempCorrection;
+  float rawHumidity = bme68x.humidity + humidityCorrection;
+  float rawPressure = bme68x.pressure / 100.0; // hPa
 
-  // BSEC gas algorithm outputs
-  currentData.iaq = bme68x.iaq;
+  // Validate and clamp sensor values
+  currentData.temperature = isValidTemperature(rawTemp) ? rawTemp : 
+                           (rawTemp < TEMP_MIN ? TEMP_MIN : TEMP_MAX);
+  currentData.humidity = isValidHumidity(rawHumidity) ? rawHumidity : 
+                         (rawHumidity < HUMIDITY_MIN ? HUMIDITY_MIN : HUMIDITY_MAX);
+  currentData.pressure = isValidPressure(rawPressure) ? rawPressure : 
+                        (rawPressure < PRESSURE_MIN ? PRESSURE_MIN : PRESSURE_MAX);
+  currentData.gasResistance = (bme68x.gasResistance > 0) ? bme68x.gasResistance : 0;
+
+  // BSEC gas algorithm outputs with validation
+  float rawIAQ = bme68x.iaq;
+  float rawCO2 = bme68x.co2Equivalent;
+  float rawVOC = bme68x.breathVocEquivalent;
+
+  currentData.iaq = isValidIAQ(rawIAQ) ? rawIAQ : 0.0f;
   currentData.iaqAccuracy = bme68x.iaqAccuracy;
-  currentData.staticIaq = bme68x.staticIaq;
+  currentData.staticIaq = isValidIAQ(bme68x.staticIaq) ? bme68x.staticIaq : 0.0f;
   currentData.staticIaqAccuracy = bme68x.staticIaqAccuracy;
-  currentData.co2Equivalent = bme68x.co2Equivalent;
+  currentData.co2Equivalent = isValidCO2(rawCO2) ? rawCO2 : CO2_MIN;
   currentData.co2Accuracy = bme68x.co2Accuracy;
-  currentData.breathVocEquivalent = bme68x.breathVocEquivalent;
+  currentData.breathVocEquivalent = isValidVOC(rawVOC) ? rawVOC : VOC_MIN;
   currentData.breathVocAccuracy = bme68x.breathVocAccuracy;
 
   // Calibration status
@@ -393,8 +450,8 @@ bool SensorManager::readDS18B20() {
       return false;
 
     case DS18B20_REQUESTED:
-      // Wait for 750ms conversion time
-      if (millis() - ds18RequestTime >= 750) {
+      // Wait for conversion time
+      if (millis() - ds18RequestTime >= DS18B20_CONVERSION_TIME_MS) {
         ds18State = DS18B20_READING;
       }
       return false;
@@ -409,7 +466,13 @@ bool SensorManager::readDS18B20() {
         return false;
       }
 
-      currentData.externalTemp = temp;
+      // Validate temperature before storing
+      if (isValidTemperature(temp)) {
+        currentData.externalTemp = temp;
+      } else {
+        DEBUG_WARN("DS18B20 invalid temperature: %.2f", temp);
+        currentData.externalTemp = (temp < TEMP_MIN ? TEMP_MIN : TEMP_MAX);
+      }
       return true;
   }
   return false;
@@ -427,8 +490,8 @@ bool SensorManager::readPMS5003() {
       return false;
 
     case PMS5003_WAKING:
-      // Wait for 2000ms wake up time
-      if (millis() - pmsStateTime >= 2000) {
+      // Wait for wake up time
+      if (millis() - pmsStateTime >= PMS_WAKE_TIME_MS) {
         pms5003.requestRead();
         pmsStateTime = millis();
         pmsState = PMS5003_READING;
@@ -436,20 +499,30 @@ bool SensorManager::readPMS5003() {
       return false;
 
     case PMS5003_READING:
-      // Try to read data with 1000ms timeout
-      if (pms5003.readUntil(pmsData, 50)) {  // Non-blocking check
-        currentData.pm1_0 = pmsData.PM_AE_UG_1_0;
-        currentData.pm2_5 = pmsData.PM_AE_UG_2_5;
-        currentData.pm10 = pmsData.PM_AE_UG_10_0;
+      // Try to read data with timeout
+      if (pms5003.readUntil(pmsData, PMS_READ_TIMEOUT_MS / 20)) {  // Non-blocking check
+        // Validate PM values before storing
+        if (isValidPM(pmsData.PM_AE_UG_1_0) && isValidPM(pmsData.PM_AE_UG_2_5) && isValidPM(pmsData.PM_AE_UG_10_0)) {
+          currentData.pm1_0 = pmsData.PM_AE_UG_1_0;
+          currentData.pm2_5 = pmsData.PM_AE_UG_2_5;
+          currentData.pm10 = pmsData.PM_AE_UG_10_0;
+        } else {
+          DEBUG_WARN("PMS5003 invalid PM values: PM1.0=%d, PM2.5=%d, PM10=%d",
+                     pmsData.PM_AE_UG_1_0, pmsData.PM_AE_UG_2_5, pmsData.PM_AE_UG_10_0);
+          // Use last valid values or zero
+          currentData.pm1_0 = 0;
+          currentData.pm2_5 = 0;
+          currentData.pm10 = 0;
+        }
         pms5003.sleep();
         pmsState = PMS5003_SLEEPING;
         return true;
       }
 
       // Check timeout
-      if (millis() - pmsStateTime >= 1000) {
+      if (millis() - pmsStateTime >= PMS_READ_TIMEOUT_MS) {
         pmsRetryCount++;
-        if (pmsRetryCount >= 2) {
+        if (pmsRetryCount >= PMS_RETRY_COUNT) {
           // Failed after 2 attempts
           DEBUG_WARN("PMS5003 read failed after %d attempts", pmsRetryCount);
           pms5003.sleep();
@@ -522,6 +595,7 @@ bool SensorManager::saveBsecState() {
 
 bool SensorManager::loadBsecState() {
   if (!currentData.bme68xAvailable) {
+    DEBUG_WARN("BME68X not available - cannot load BSEC state");
     return false;
   }
 
@@ -529,27 +603,46 @@ bool SensorManager::loadBsecState() {
   EEPROM.get(BSEC_BASELINE_EEPROM_ADDR, serializedStateLength);
 
   // Plausibility check
-  if (serializedStateLength == 0 || serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE) {
-    DEBUG_WARN("No valid BSEC state found - starting fresh");
+  if (serializedStateLength == 0) {
+    DEBUG_INFO("No BSEC state found in EEPROM - starting fresh calibration");
+    return false;
+  }
+
+  if (serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE) {
+    DEBUG_ERROR("BSEC state length invalid: %d bytes (max: %d) (ErrorCode: %d)", 
+                serializedStateLength, BSEC_MAX_STATE_BLOB_SIZE, ERROR_INVALID_DATA);
+    return false;
+  }
+
+  // Check EEPROM bounds
+  uint32_t requiredSize = BSEC_BASELINE_EEPROM_ADDR + 4 + serializedStateLength;
+  if (requiredSize > EEPROM.length()) {
+    DEBUG_ERROR("EEPROM read would overflow: need %d bytes, have %d (ErrorCode: %d)", 
+                requiredSize, EEPROM.length(), ERROR_EEPROM_FAILED);
     return false;
   }
 
   uint8_t bsecState[BSEC_MAX_STATE_BLOB_SIZE] = {0};
   uint8_t workBuffer[BSEC_MAX_WORKBUFFER_SIZE] = {0};
 
-  // Load state
+  // Load state with error checking
   for (uint32_t i = 0; i < serializedStateLength; i++) {
-    bsecState[i] = EEPROM.read(BSEC_BASELINE_EEPROM_ADDR + 4 + i);
+    uint8_t byte = EEPROM.read(BSEC_BASELINE_EEPROM_ADDR + 4 + i);
+    if (byte == 0xFF && i == 0) {
+      // EEPROM might be uninitialized
+      DEBUG_WARN("EEPROM appears uninitialized at offset %d", i);
+    }
+    bsecState[i] = byte;
   }
 
   bsec_library_return_t status = bsec_set_state(bsecState, serializedStateLength, workBuffer, sizeof(workBuffer));
 
   if (status == BSEC_OK) {
-    DEBUG_INFO("BSEC state loaded (%d bytes)", serializedStateLength);
+    DEBUG_INFO("BSEC state loaded successfully (%d bytes)", serializedStateLength);
     currentData.bsecCalibrated = true;
     return true;
   } else {
-    DEBUG_ERROR("BSEC state load failed: %d", status);
+    DEBUG_ERROR("BSEC state load failed: %d (ErrorCode: %d)", status, ERROR_SENSOR_READ_FAILED);
     return false;
   }
 }
@@ -584,6 +677,83 @@ void SensorManager::printSensorStatus() {
     DEBUG_INFO("BSEC Status: %d", bme68x.bsecStatus);
     DEBUG_INFO("BME68X Status: %d", bme68x.bme68xStatus);
   }
+}
+
+// Validation functions
+bool SensorManager::isValidTemperature(float temp) {
+  return (temp >= TEMP_MIN && temp <= TEMP_MAX) && !isnan(temp) && !isinf(temp);
+}
+
+bool SensorManager::isValidHumidity(float humidity) {
+  return (humidity >= HUMIDITY_MIN && humidity <= HUMIDITY_MAX) && !isnan(humidity) && !isinf(humidity);
+}
+
+bool SensorManager::isValidPressure(float pressure) {
+  return (pressure >= PRESSURE_MIN && pressure <= PRESSURE_MAX) && !isnan(pressure) && !isinf(pressure);
+}
+
+bool SensorManager::isValidIAQ(float iaq) {
+  return (iaq >= IAQ_MIN && iaq <= IAQ_MAX) && !isnan(iaq) && !isinf(iaq);
+}
+
+bool SensorManager::isValidCO2(float co2) {
+  return (co2 >= CO2_MIN && co2 <= CO2_MAX) && !isnan(co2) && !isinf(co2);
+}
+
+bool SensorManager::isValidVOC(float voc) {
+  return (voc >= VOC_MIN && voc <= VOC_MAX) && !isnan(voc) && !isinf(voc);
+}
+
+bool SensorManager::isValidPM(uint16_t pm) {
+  return (pm >= PM_MIN && pm <= PM_MAX);
+}
+
+bool SensorManager::validateSensorData(const SensorData& data) {
+  bool valid = true;
+  
+  if (data.bme68xAvailable) {
+    if (!isValidTemperature(data.temperature)) {
+      DEBUG_WARN("Invalid temperature: %.2f", data.temperature);
+      valid = false;
+    }
+    if (!isValidHumidity(data.humidity)) {
+      DEBUG_WARN("Invalid humidity: %.2f", data.humidity);
+      valid = false;
+    }
+    if (!isValidPressure(data.pressure)) {
+      DEBUG_WARN("Invalid pressure: %.2f", data.pressure);
+      valid = false;
+    }
+    if (!isValidIAQ(data.iaq)) {
+      DEBUG_WARN("Invalid IAQ: %.2f", data.iaq);
+      valid = false;
+    }
+    if (!isValidCO2(data.co2Equivalent)) {
+      DEBUG_WARN("Invalid CO2: %.2f", data.co2Equivalent);
+      valid = false;
+    }
+    if (!isValidVOC(data.breathVocEquivalent)) {
+      DEBUG_WARN("Invalid VOC: %.2f", data.breathVocEquivalent);
+      valid = false;
+    }
+  }
+  
+  if (data.pms5003Available) {
+    if (!isValidPM(data.pm1_0) || !isValidPM(data.pm2_5) || !isValidPM(data.pm10)) {
+      DEBUG_WARN("Invalid PM values: PM1.0=%d, PM2.5=%d, PM10=%d", 
+                 data.pm1_0, data.pm2_5, data.pm10);
+      valid = false;
+    }
+  }
+  
+  if (data.ds18b20Available) {
+    if (!isValidTemperature(data.externalTemp)) {
+      DEBUG_WARN("Invalid external temperature: %.2f", data.externalTemp);
+      valid = false;
+    }
+  }
+  
+  return valid;
 }
 
 #endif

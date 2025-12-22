@@ -34,9 +34,9 @@ public:
   void activateStealthTemp();
   
   // Status
-  bool isDisplayEnabled() { return displayEnabled; }
-  DisplayView getCurrentView() { return currentView; }
-  StealthMode getStealthMode() { return stealthMode; }
+  bool isDisplayEnabled() const { return displayEnabled; }
+  DisplayView getCurrentView() const { return currentView; }
+  StealthMode getStealthMode() const { return stealthMode; }
   
   void resetActivity() { /* no longer used */ }
   
@@ -50,6 +50,8 @@ private:
     void drawNodeRedIcon(int x, int y, bool connected);
     void drawConnectionBar(int x, int y, bool wifiConnected, bool nodeRedResponding);
     String getShortLevelName(const String& level);
+    // Helper for icon drawing - reduces duplication
+    void drawStatusIcon(int x, int y, bool connected, bool isWiFi);
   void updateStealthMode();
   void updateDisplayBrightness();
 };
@@ -347,17 +349,29 @@ void DisplayManager::drawNodeRedIcon(int x, int y, bool connected) {
 void DisplayManager::drawConnectionBar(int x, int y, bool wifiConnected, bool nodeRedResponding) {
   const uint8_t segmentWidth = 3;
   const uint8_t segmentHeight = 5;
+  const uint8_t segmentSpacing = 1;
 
+  // Draw WiFi status segment
   if (wifiConnected) {
     display.drawBox(x, y, segmentWidth, segmentHeight);
   } else {
     display.drawFrame(x, y, segmentWidth, segmentHeight);
   }
 
+  // Draw Node-RED status segment
   if (nodeRedResponding) {
-    display.drawBox(x, y + segmentHeight + 1, segmentWidth, segmentHeight);
+    display.drawBox(x, y + segmentHeight + segmentSpacing, segmentWidth, segmentHeight);
   } else {
-    display.drawFrame(x, y + segmentHeight + 1, segmentWidth, segmentHeight);
+    display.drawFrame(x, y + segmentHeight + segmentSpacing, segmentWidth, segmentHeight);
+  }
+}
+
+// Helper function to reduce icon drawing duplication
+void DisplayManager::drawStatusIcon(int x, int y, bool connected, bool isWiFi) {
+  if (isWiFi) {
+    drawWiFiIcon(x, y, connected);
+  } else {
+    drawNodeRedIcon(x, y, connected);
   }
 }
 
@@ -371,17 +385,34 @@ String DisplayManager::getShortLevelName(const String& level) {
 }
 
 void DisplayManager::showMessage(const String& message, int duration) {
-  if (!displayEnabled) return;
+  if (!displayEnabled) {
+    DEBUG_WARN("Display not enabled - cannot show message");
+    return;
+  }
+  
+  if (message.length() == 0) {
+    DEBUG_WARN("Empty message - skipping display");
+    return;
+  }
   
   display.clearBuffer();
   display.setFont(u8g2_font_ncenB08_tr);
   
-  // Center text
+  // Center text with bounds checking
   int textWidth = display.getUTF8Width(message.c_str());
+  if (textWidth > SCREEN_WIDTH) {
+    DEBUG_WARN("Message too wide: %d pixels (max: %d)", textWidth, SCREEN_WIDTH);
+    // Truncate or use smaller font
+    textWidth = SCREEN_WIDTH;
+  }
   int x = (SCREEN_WIDTH - textWidth) / 2;
+  if (x < 0) x = 0;
   
   display.drawStr(x, 32, message.c_str());
-  display.sendBuffer();
+  
+  if (!display.sendBuffer()) {
+    DEBUG_ERROR("Failed to send display buffer");
+  }
   
   if (duration > 0) {
     delay(duration);

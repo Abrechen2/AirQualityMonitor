@@ -11,6 +11,12 @@
 #include "TimeUtils.h"
 
 // ===== MQTT MANAGER CLASS =====
+/**
+ * @class MQTTManager
+ * @brief Manages MQTT communication for Home Assistant integration
+ * 
+ * Handles MQTT connection, Home Assistant discovery, and sensor data publishing.
+ */
 class MQTTManager {
 private:
   WiFiClient wifiClient;
@@ -24,26 +30,56 @@ private:
   String discoveryPrefix;
   
   // Helper functions
-  String getMacAddress();
+  String getMacAddress() const;
   void publishDiscoveryConfig();
   void publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
                               const String& unit, const String& icon, 
-                              const String& valueTemplate = "");
-  void publishAvailability();
+                              const String& valueTemplate = "") const;
+  void publishAvailability() const;
   
 public:
+  /**
+   * @brief Constructor - initializes device ID and topics
+   */
   MQTTManager();
   
+  /**
+   * @brief Initialize MQTT client
+   * @return true if initialization successful
+   */
   bool init();
+  
+  /**
+   * @brief Connect to MQTT broker
+   * @return true if connection successful
+   */
   bool connect();
+  
+  /**
+   * @brief Update MQTT client (call in main loop)
+   */
   void update();
+  
+  /**
+   * @brief Publish sensor data to MQTT
+   * @param data Current sensor data
+   * @param aqi Calculated AQI value
+   * @param aqiLevel AQI level string
+   * @param wifiConnected WiFi connection status
+   * @param nodeRedResponding Node-RED response status
+   */
   void publishData(const SensorData& data, float aqi, const String& aqiLevel, 
                   bool wifiConnected, bool nodeRedResponding);
-  bool isConnected() { return mqttClient.connected(); }
+  
+  /**
+   * @brief Check MQTT connection status
+   * @return true if connected to broker
+   */
+  bool isConnected() const { return mqttClient.connected(); }
   
 private:
   void reconnect();
-  String createDeviceInfo();
+  String createDeviceInfo() const;
 };
 
 // ===== IMPLEMENTATION =====
@@ -53,7 +89,7 @@ MQTTManager::MQTTManager() : mqttClient(wifiClient) {
   discoveryPrefix = "homeassistant/sensor/airqualitymonitor_" + deviceUniqueId;
 }
 
-String MQTTManager::getMacAddress() {
+String MQTTManager::getMacAddress() const {
   uint8_t mac[6];
   WiFi.macAddress(mac);
   char macStr[18];
@@ -62,7 +98,7 @@ String MQTTManager::getMacAddress() {
   return String(macStr);
 }
 
-String MQTTManager::createDeviceInfo() {
+String MQTTManager::createDeviceInfo() const {
   StaticJsonDocument<256> device;
   device["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
   device["name"] = "Air Quality Monitor";
@@ -77,7 +113,7 @@ String MQTTManager::createDeviceInfo() {
 
 void MQTTManager::publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
                                          const String& unit, const String& icon,
-                                         const String& valueTemplate) {
+                                         const String& valueTemplate) const {
   StaticJsonDocument<512> config;
   
   config["name"] = "Air Quality Monitor " + sensorName;
@@ -92,14 +128,22 @@ void MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
     config["value_template"] = valueTemplate;
   }
   
-  // Device info
-  StaticJsonDocument<256> device;
-  device["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
-  device["name"] = "Air Quality Monitor";
-  device["manufacturer"] = "Abrechen2";
-  device["model"] = "ESP32 Air Quality Monitor v1.1";
-  device["sw_version"] = "1.1.0";
-  config["device"] = device;
+  // Device info - reuse createDeviceInfo() to avoid duplication
+  StaticJsonDocument<256> deviceDoc;
+  String deviceInfoStr = createDeviceInfo();
+  DeserializationError error = deserializeJson(deviceDoc, deviceInfoStr);
+  if (!error) {
+    config["device"] = deviceDoc;
+  } else {
+    // Fallback: create device info inline if deserialization fails
+    StaticJsonDocument<256> device;
+    device["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
+    device["name"] = "Air Quality Monitor";
+    device["manufacturer"] = "Abrechen2";
+    device["model"] = "ESP32 Air Quality Monitor v1.1";
+    device["sw_version"] = "1.1.0";
+    config["device"] = device;
+  }
   
   String topic = discoveryPrefix + "/" + sensorName + "/config";
   String payload;
@@ -155,7 +199,7 @@ void MQTTManager::publishDiscoveryConfig() {
   DEBUG_INFO("Home Assistant discovery configuration published");
 }
 
-void MQTTManager::publishAvailability() {
+void MQTTManager::publishAvailability() const {
   String topic = baseTopic + "/status";
   mqttClient.publish(topic.c_str(), "online", true); // retain = true
 }
