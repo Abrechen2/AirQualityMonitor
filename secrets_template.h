@@ -25,12 +25,6 @@
 #define WIFI_SSID "YOUR_WIFI_SSID"
 #define WIFI_PASSWORD "YOUR_PASSWORD"
 
-// ===== NODE-RED ENDPOINTS =====
-// Replace with your Node-RED server address
-// SECURITY: Use HTTPS in production: "https://YOUR_SERVER:1880/..."
-#define NODERED_SEND_URL "http://YOUR_SERVER:1880/sensor-data"
-#define NODERED_AQI_URL "http://YOUR_SERVER:1880/calculate-aqi"
-
 // ===== MQTT CONFIGURATION =====
 // MQTT Broker settings for Home Assistant integration
 // Replace with your MQTT broker address

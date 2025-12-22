@@ -71,9 +71,9 @@ public:
   ByteTransmissionManager();
 
   bool connectWiFi();
-  bool isTimeToSend();
+  bool isTimeToSend() const;
   AQIResult sendDataAndGetAQI(const SensorData& data);
-  bool isConnected() { return WiFi.status() == WL_CONNECTED; }
+  bool isConnected() const { return WiFi.status() == WL_CONNECTED; }
   
 private:
   SensorDataPacket createPacket(const SensorData& data);
@@ -81,6 +81,13 @@ private:
   bool sendBinaryData(const SensorDataPacket& packet);
   AQIResult getCalculatedAQI(const SensorData& data);
   uint32_t parseColorCode(const String& colorStr);
+  
+  // Safe conversion functions with overflow protection
+  int16_t safeTempToInt16(float temp);
+  uint16_t safeHumidityToUint16(float humidity);
+  uint16_t safePressureToUint16(float pressure);
+  uint16_t safeIAQToUint16(float iaq);
+  uint16_t safeVOCToUint16(float voc);
 };
 
 // ===== IMPLEMENTATION =====
@@ -109,7 +116,7 @@ bool ByteTransmissionManager::connectWiFi() {
   }
 }
 
-bool ByteTransmissionManager::isTimeToSend() {
+bool ByteTransmissionManager::isTimeToSend() const {
   return (millis() - lastSendTime >= DATA_SEND_INTERVAL);
 }
 
@@ -133,25 +140,26 @@ SensorDataPacket ByteTransmissionManager::createPacket(const SensorData& data) {
   // Header
   packet.timestamp = (uint32_t)(getUptimeMillis() / 1000);  // Unix-like since start
 
-  // BME68X data
+  // BME68X data with overflow protection
   if (data.bme68xAvailable) {
-    packet.bme_temperature = (int16_t)(data.temperature * 100);
-    packet.bme_humidity = (uint16_t)(data.humidity * 100);
-    packet.bme_pressure = (uint16_t)(data.pressure * 10);
+    packet.bme_temperature = safeTempToInt16(data.temperature);
+    packet.bme_humidity = safeHumidityToUint16(data.humidity);
+    packet.bme_pressure = safePressureToUint16(data.pressure);
     packet.gas_resistance = (uint32_t)data.gasResistance;
-    packet.iaq = (uint16_t)(data.iaq * 10);
-    packet.static_iaq = (uint16_t)(data.staticIaq * 10);
-    packet.co2_equivalent = (uint16_t)data.co2Equivalent;
-    packet.breath_voc = (uint16_t)(data.breathVocEquivalent * 100);
+    packet.iaq = safeIAQToUint16(data.iaq);
+    packet.static_iaq = safeIAQToUint16(data.staticIaq);
+    // CO2 can be up to 40000, but uint16_t max is 65535, so safe
+    packet.co2_equivalent = (data.co2Equivalent > 65535) ? 65535 : (uint16_t)data.co2Equivalent;
+    packet.breath_voc = safeVOCToUint16(data.breathVocEquivalent);
     packet.iaq_accuracy = data.iaqAccuracy;
     packet.co2_accuracy = data.co2Accuracy;
     packet.voc_accuracy = data.breathVocAccuracy;
     packet.bme_flags = (data.bme68xAvailable ? 1 : 0) | (data.bsecCalibrated ? 2 : 0);
   }
   
-  // DS18B20 data
+  // DS18B20 data with overflow protection
   if (data.ds18b20Available) {
-    packet.ds_temperature = (int16_t)(data.externalTemp * 100);
+    packet.ds_temperature = safeTempToInt16(data.externalTemp);
     packet.ds_flags = 1;  // Available
   }
   
@@ -199,7 +207,7 @@ bool ByteTransmissionManager::sendBinaryData(const SensorDataPacket& packet) {
 
   http.addHeader("Content-Type", "application/octet-stream");
   http.addHeader("X-Packet-Size", String(sizeof(SensorDataPacket)));
-  http.setTimeout(5000);
+  http.setTimeout(HTTP_TIMEOUT_MS);
 
   DEBUG_INFO("Sending binary packet (%d bytes)", sizeof(SensorDataPacket));
 
@@ -235,14 +243,21 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   }
 
   http.addHeader("Content-Type", "application/json");
-  http.setTimeout(3000);
+  http.setTimeout(HTTP_AQI_TIMEOUT_MS);
   http.setReuse(false);
   const char* headerKeys[] = {"Content-Length"};
   http.collectHeaders(headerKeys, 1);
 
+  // Validate input data before sending
+  if (data.pm2_5 > PM_MAX || data.pm10 > PM_MAX || 
+      data.iaq > IAQ_MAX || data.co2Equivalent > CO2_MAX) {
+    DEBUG_WARN("Invalid sensor data for AQI request - skipping");
+    http.end();
+    return result;
+  }
 
   // Build JSON request safely
-  StaticJsonDocument<256> doc;
+  StaticJsonDocument<JSON_MAX_SIZE> doc;
   doc["pm2_5"] = data.pm2_5;
   doc["pm10"] = data.pm10;
   doc["iaq"] = data.iaq;
@@ -250,39 +265,98 @@ AQIResult ByteTransmissionManager::getCalculatedAQI(const SensorData& data) {
   doc["calibrated"] = data.bsecCalibrated;
 
   String request;
-  serializeJson(doc, request);
+  if (serializeJson(doc, request) == 0) {
+    DEBUG_ERROR("JSON serialization failed");
+    http.end();
+    return result;
+  }
+
+  // Validate request size
+  if (request.length() > JSON_MAX_SIZE) {
+    DEBUG_ERROR("JSON request too large: %d bytes", request.length());
+    http.end();
+    return result;
+  }
 
   int httpResponseCode = http.POST(request);
 
   if (httpResponseCode >= 200 && httpResponseCode < 300) {
-    if (http.getSize() > 1024) {
-      DEBUG_ERROR("Response too large: %d bytes", http.getSize());
+    // Check response size before reading
+    int contentLength = http.getSize();
+    if (contentLength <= 0 || contentLength > HTTP_MAX_RESPONSE_SIZE) {
+      DEBUG_ERROR("Invalid response size: %d bytes", contentLength);
       http.end();
       return result;
     }
 
     String response = http.getString();
+    
+    // Validate response string length
+    if (response.length() > HTTP_MAX_RESPONSE_SIZE) {
+      DEBUG_ERROR("Response string too large: %d bytes", response.length());
+      http.end();
+      return result;
+    }
+
     DEBUG_INFO("Full AQI response: %s", response.c_str());
 
-    StaticJsonDocument<256> doc;
-    DeserializationError error = deserializeJson(doc, response);
+    StaticJsonDocument<JSON_MAX_SIZE> responseDoc;
+    DeserializationError error = deserializeJson(responseDoc, response);
 
-    if (!error) {
-      JsonObject aqi = doc["aqi"];
-      if (!aqi.isNull()) {
-        result.aqi = aqi["combined"].as<float>();
-        if (aqi.containsKey("level")) {
-          result.level = String((const char*)aqi["level"]);
-        }
-        if (aqi.containsKey("color")) {
-          result.colorCode = parseColorCode(String((const char*)aqi["color"]));
-        }
-        result.success = true;
-        DEBUG_INFO("Final parsed AQI: %.1f (%s)", result.aqi, result.level.c_str());
+    if (error) {
+      DEBUG_ERROR("JSON parse failed: %s", error.c_str());
+      http.end();
+      return result;
+    }
+
+    // Validate JSON structure
+    if (!responseDoc.is<JsonObject>()) {
+      DEBUG_ERROR("Invalid JSON structure - expected object");
+      http.end();
+      return result;
+    }
+
+    JsonObject aqi = responseDoc["aqi"];
+    if (aqi.isNull()) {
+      DEBUG_ERROR("Missing 'aqi' field in response");
+      http.end();
+      return result;
+    }
+
+    // Validate and extract AQI value
+    if (aqi.containsKey("combined")) {
+      float aqiValue = aqi["combined"].as<float>();
+      if (aqiValue >= 0 && aqiValue <= 500) {
+        result.aqi = aqiValue;
+      } else {
+        DEBUG_WARN("Invalid AQI value: %.2f", aqiValue);
+        http.end();
+        return result;
       }
     } else {
-      DEBUG_ERROR("JSON parse failed: %s", error.c_str());
+      DEBUG_ERROR("Missing 'combined' field in AQI response");
+      http.end();
+      return result;
     }
+
+    // Extract level (optional)
+    if (aqi.containsKey("level") && aqi["level"].is<const char*>()) {
+      const char* levelStr = aqi["level"];
+      if (levelStr != nullptr && strlen(levelStr) < 64) {
+        result.level = String(levelStr);
+      }
+    }
+
+    // Extract color (optional)
+    if (aqi.containsKey("color") && aqi["color"].is<const char*>()) {
+      const char* colorStr = aqi["color"];
+      if (colorStr != nullptr) {
+        result.colorCode = parseColorCode(String(colorStr));
+      }
+    }
+
+    result.success = true;
+    DEBUG_INFO("Final parsed AQI: %.1f (%s)", result.aqi, result.level.c_str());
   } else {
     DEBUG_ERROR("AQI request failed, HTTP: %d", httpResponseCode);
   }
@@ -303,6 +377,38 @@ uint32_t ByteTransmissionManager::parseColorCode(const String& colorStr) {
   if (colorStr.indexOf("Unhealthy") >= 0) return 0xFF0000;
 
   return 0x00FF00; // Default green
+}
+
+// Safe conversion functions with overflow protection
+int16_t ByteTransmissionManager::safeTempToInt16(float temp) {
+  int32_t tempScaled = (int32_t)(temp * 100.0f);
+  if (tempScaled > INT16_TEMP_MAX) return INT16_TEMP_MAX;
+  if (tempScaled < INT16_TEMP_MIN) return INT16_TEMP_MIN;
+  return (int16_t)tempScaled;
+}
+
+uint16_t ByteTransmissionManager::safeHumidityToUint16(float humidity) {
+  uint32_t humidityScaled = (uint32_t)(humidity * 100.0f);
+  if (humidityScaled > UINT16_HUMIDITY_MAX) return UINT16_HUMIDITY_MAX;
+  return (uint16_t)humidityScaled;
+}
+
+uint16_t ByteTransmissionManager::safePressureToUint16(float pressure) {
+  uint32_t pressureScaled = (uint32_t)(pressure * 10.0f);
+  if (pressureScaled > UINT16_PRESSURE_MAX) return UINT16_PRESSURE_MAX;
+  return (uint16_t)pressureScaled;
+}
+
+uint16_t ByteTransmissionManager::safeIAQToUint16(float iaq) {
+  uint32_t iaqScaled = (uint32_t)(iaq * 10.0f);
+  if (iaqScaled > UINT16_IAQ_MAX) return UINT16_IAQ_MAX;
+  return (uint16_t)iaqScaled;
+}
+
+uint16_t ByteTransmissionManager::safeVOCToUint16(float voc) {
+  uint32_t vocScaled = (uint32_t)(voc * 100.0f);
+  if (vocScaled > UINT16_VOC_MAX) return UINT16_VOC_MAX;
+  return (uint16_t)vocScaled;
 }
 
 #endif

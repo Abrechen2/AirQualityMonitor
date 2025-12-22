@@ -11,11 +11,13 @@ private:
   DisplayManager& displayManager;
 
   static volatile bool selectFlag;
-  static volatile unsigned long lastInterruptTime;
+  static volatile uint32_t interruptCount;  // ISR-safe counter instead of millis()
   static portMUX_TYPE selectMux;
   static void IRAM_ATTR selectISR();
 
   unsigned long selectPressTime = 0;
+  unsigned long lastInterruptTime = 0;
+  uint32_t lastInterruptCount = 0;
   bool selectWaitingRelease = false;
 
 public:
@@ -30,17 +32,15 @@ private:
 
 // ===== STATIC MEMBER INITIALIZATION =====
 volatile bool ButtonHandler::selectFlag = false;
-volatile unsigned long ButtonHandler::lastInterruptTime = 0;
+volatile uint32_t ButtonHandler::interruptCount = 0;
 portMUX_TYPE ButtonHandler::selectMux = portMUX_INITIALIZER_UNLOCKED;
 
 // ===== ISR DEFINITION =====
+// ISR-safe: Only set flag, no millis() call
 void IRAM_ATTR ButtonHandler::selectISR() {
   portENTER_CRITICAL_ISR(&selectMux);
-  unsigned long interruptTime = millis();
-  if (interruptTime - lastInterruptTime > BUTTON_DEBOUNCE_MS) {
-    selectFlag = true;
-    lastInterruptTime = interruptTime;
-  }
+  interruptCount++;
+  selectFlag = true;
   portEXIT_CRITICAL_ISR(&selectMux);
 }
 
@@ -59,12 +59,19 @@ void ButtonHandler::update() {
 
   portENTER_CRITICAL(&selectMux);
   bool flagCopy = selectFlag;
+  uint32_t currentInterruptCount = interruptCount;
   selectFlag = false;
   portEXIT_CRITICAL(&selectMux);
 
+  // Debounce: Only process if enough time has passed since last interrupt
   if (flagCopy) {
-    selectPressTime = currentTime;
-    selectWaitingRelease = true;
+    if (currentTime - lastInterruptTime >= BUTTON_DEBOUNCE_MS || 
+        currentInterruptCount != lastInterruptCount) {
+      selectPressTime = currentTime;
+      selectWaitingRelease = true;
+      lastInterruptTime = currentTime;
+      lastInterruptCount = currentInterruptCount;
+    }
   }
 
   if (selectWaitingRelease && digitalRead(BUTTON_SELECT_PIN) == HIGH) {
