@@ -31,6 +31,11 @@
 #define WIFI_CONNECT_TIMEOUT 15000    // 15 seconds
 #define STEALTH_TEMP_ON_MS 20000      // 20 seconds temporary activation
 
+// ===== MQTT CONFIGURATION =====
+#define MQTT_PUBLISH_INTERVAL 10000   // 10 seconds (synchronized with DATA_SEND_INTERVAL)
+#define MQTT_RECONNECT_INTERVAL 5000  // 5 seconds between reconnect attempts
+#define MQTT_MAX_PACKET_SIZE 1024     // Maximum MQTT packet size (bytes)
+
 // ===== SENSOR CONFIGURATION =====
 #define DEFAULT_TEMP_CORRECTION -3.5
 #define DEFAULT_HUMIDITY_CORRECTION 0.0

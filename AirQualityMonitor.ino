@@ -9,6 +9,7 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <PubSubClient.h>
 #include <U8g2lib.h>
 #include "PMS.h"
 #include <OneWire.h>
@@ -25,6 +26,7 @@
 #include "ButtonHandler.h"
 #include "LEDManager.h"
 #include "ByteTransmission.h"
+#include "MQTTManager.h"
 
 // ===== HARDWARE OBJECTS =====
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -38,6 +40,7 @@ DisplayManager displayManager(u8g2, strip);
 ButtonHandler buttonHandler(displayManager);
 LEDManager ledManager(strip, displayManager);
 ByteTransmissionManager byteManager;
+MQTTManager mqttManager;
 
 // ===== GLOBAL VARIABLES =====
 bool wifiConnected = false;
@@ -134,6 +137,14 @@ void setup() {
     String ip = WiFi.localIP().toString();
     displayManager.showMessage("IP: " + ip, 2000);
     DEBUG_INFO("WiFi connected successfully");
+    
+    // Initialize MQTT
+    mqttManager.init();
+    if (mqttManager.connect()) {
+      DEBUG_INFO("MQTT connected successfully");
+    } else {
+      DEBUG_WARN("MQTT connection failed - will retry in loop");
+    }
   } else {
     displayManager.showMessage("Offline mode", 5000);
     DEBUG_WARN("WiFi connection failed - offline mode");
@@ -207,6 +218,17 @@ void loop() {
 
     displayManager.updateDisplay(data, calculatedAQI, aqiLevel, wifiConnected, nodeRedResponding);
     ledManager.updateLEDs(aqiColorCode);
+    
+    // Publish data to MQTT (parallel to Node-RED)
+    if (wifiConnected) {
+      mqttManager.update();
+      mqttManager.publishData(data, calculatedAQI, aqiLevel, wifiConnected, nodeRedResponding);
+    }
+  }
+
+  // Update MQTT connection (even when no sensor data update)
+  if (wifiConnected) {
+    mqttManager.update();
   }
 
   // Check WiFi connection
