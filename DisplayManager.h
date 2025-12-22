@@ -410,9 +410,8 @@ void DisplayManager::showMessage(const String& message, int duration) {
   
   display.drawStr(x, 32, message.c_str());
   
-  if (!display.sendBuffer()) {
-    DEBUG_ERROR("Failed to send display buffer");
-  }
+  // sendBuffer() returns void, so we can't check for errors
+  display.sendBuffer();
   
   if (duration > 0) {
     delay(duration);

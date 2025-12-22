@@ -34,8 +34,8 @@ private:
   void publishDiscoveryConfig();
   void publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
                               const String& unit, const String& icon, 
-                              const String& valueTemplate = "") const;
-  void publishAvailability() const;
+                              const String& valueTemplate = "");
+  void publishAvailability();
   
 public:
   /**
@@ -75,7 +75,7 @@ public:
    * @brief Check MQTT connection status
    * @return true if connected to broker
    */
-  bool isConnected() const { return mqttClient.connected(); }
+  bool isConnected() { return mqttClient.connected(); }
   
 private:
   void reconnect();
@@ -113,7 +113,7 @@ String MQTTManager::createDeviceInfo() const {
 
 void MQTTManager::publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
                                          const String& unit, const String& icon,
-                                         const String& valueTemplate) const {
+                                         const String& valueTemplate) {
   StaticJsonDocument<512> config;
   
   config["name"] = "Air Quality Monitor " + sensorName;
@@ -199,7 +199,7 @@ void MQTTManager::publishDiscoveryConfig() {
   DEBUG_INFO("Home Assistant discovery configuration published");
 }
 
-void MQTTManager::publishAvailability() const {
+void MQTTManager::publishAvailability() {
   String topic = baseTopic + "/status";
   mqttClient.publish(topic.c_str(), "online", true); // retain = true
 }
