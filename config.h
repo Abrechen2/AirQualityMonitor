@@ -30,6 +30,8 @@
 #define SENSOR_READ_INTERVAL 3000     // 3 seconds (BSEC ULP mode compromise)
 #define WIFI_CONNECT_TIMEOUT 15000    // 15 seconds
 #define STEALTH_TEMP_ON_MS 20000      // 20 seconds temporary activation
+#define LED_TRANSITION_STEPS 20       // Number of steps for smooth color transition
+#define LED_TRANSITION_INTERVAL_MS 50 // Time between transition steps (ms)
 
 // ===== MQTT CONFIGURATION =====
 #define MQTT_PUBLISH_INTERVAL 10000   // 10 seconds (synchronized with DATA_SEND_INTERVAL)

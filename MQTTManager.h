@@ -8,7 +8,10 @@
 #include "config.h"
 #include "secrets.h"
 #include "SensorManager.h"
+#include "DisplayManager.h"
+#include "Calculations.h"
 #include "TimeUtils.h"
+#include "WiFiManager.h"
 
 // ===== MQTT MANAGER CLASS =====
 /**
@@ -66,10 +69,10 @@ public:
    * @param aqi Calculated AQI value
    * @param aqiLevel AQI level string
    * @param wifiConnected WiFi connection status
-   * @param nodeRedResponding Node-RED response status
+   * @param displayManager Display manager for system data
    */
   void publishData(const SensorData& data, float aqi, const String& aqiLevel, 
-                  bool wifiConnected, bool nodeRedResponding);
+                  bool wifiConnected, DisplayManager& displayManager);
   
   /**
    * @brief Check MQTT connection status
@@ -103,8 +106,8 @@ String MQTTManager::createDeviceInfo() const {
   device["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
   device["name"] = "Air Quality Monitor";
   device["manufacturer"] = "Abrechen2";
-  device["model"] = "ESP32 Air Quality Monitor v1.1";
-  device["sw_version"] = "1.1.0";
+  device["model"] = "ESP32 Air Quality Monitor v1.2";
+  device["sw_version"] = "1.2.0";
   
   String deviceInfo;
   serializeJson(device, deviceInfo);
@@ -116,16 +119,27 @@ void MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
                                          const String& valueTemplate) {
   StaticJsonDocument<512> config;
   
-  config["name"] = "Air Quality Monitor " + sensorName;
+  config["name"] = sensorName;
   config["unique_id"] = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
-  config["state_topic"] = baseTopic + "/" + sensorName + "/state";
+  config["state_topic"] = baseTopic + "/state";
   config["availability_topic"] = baseTopic + "/status";
-  config["device_class"] = deviceClass;
-  config["unit_of_measurement"] = unit;
-  config["icon"] = icon;
   
+  // Use value_template to extract from JSON state
   if (valueTemplate.length() > 0) {
     config["value_template"] = valueTemplate;
+  } else {
+    // Default: extract from JSON state
+    config["value_template"] = "{{ value_json." + sensorName + " }}";
+  }
+  
+  if (deviceClass.length() > 0) {
+    config["device_class"] = deviceClass;
+  }
+  if (unit.length() > 0) {
+    config["unit_of_measurement"] = unit;
+  }
+  if (icon.length() > 0) {
+    config["icon"] = icon;
   }
   
   // Device info - reuse createDeviceInfo() to avoid duplication
@@ -186,14 +200,51 @@ void MQTTManager::publishDiscoveryConfig() {
   publishSensorDiscovery("pm2_5", "pm25", "µg/m³", "mdi:air-filter");
   publishSensorDiscovery("pm10", "pm10", "µg/m³", "mdi:air-filter");
   
-  // Calculated values
-  publishSensorDiscovery("aqi", "", "", "mdi:air-filter");
-  publishSensorDiscovery("aqi_level", "", "", "mdi:information");
+  // Calculated comfort values
+  publishSensorDiscovery("dew_point", "temperature", "°C", "mdi:thermometer-water");
+  publishSensorDiscovery("heat_index", "temperature", "°C", "mdi:thermometer");
+  publishSensorDiscovery("absolute_humidity", "", "g/m³", "mdi:water");
+  publishSensorDiscovery("comfort_index", "", "", "mdi:sofa");
+  
+  // AQI values
+  publishSensorDiscovery("aqi_index", "", "", "mdi:air-filter");
+  publishSensorDiscovery("aqi_category", "", "", "mdi:information");
+  publishSensorDiscovery("pm2_5_aqi", "", "", "mdi:air-filter");
+  publishSensorDiscovery("pm10_aqi", "", "", "mdi:air-filter");
+  publishSensorDiscovery("iaq_aqi", "", "", "mdi:air-filter");
+  publishSensorDiscovery("static_iaq", "", "", "mdi:air-filter");
   
   // System sensors
   publishSensorDiscovery("wifi_rssi", "signal_strength", "dBm", "mdi:wifi");
+  publishSensorDiscovery("wifi_connected", "", "", "mdi:wifi");
+  publishSensorDiscovery("mqtt_connected", "", "", "mdi:server-network");
   publishSensorDiscovery("uptime", "", "s", "mdi:timer");
-  publishSensorDiscovery("node_red_status", "", "", "mdi:server-network");
+  publishSensorDiscovery("free_heap", "", "bytes", "mdi:memory");
+  publishSensorDiscovery("ip_address", "", "", "mdi:ip-network");
+  publishSensorDiscovery("stealth_mode", "", "", "mdi:eye-off");
+  publishSensorDiscovery("display_enabled", "", "", "mdi:monitor");
+  publishSensorDiscovery("current_view", "", "", "mdi:view-dashboard");
+  publishSensorDiscovery("sensors_available_count", "", "", "mdi:counter");
+  publishSensorDiscovery("sensor_bme68x_available", "", "", "mdi:chip");
+  publishSensorDiscovery("sensor_ds18b20_available", "", "", "mdi:chip");
+  publishSensorDiscovery("sensor_pms5003_available", "", "", "mdi:chip");
+  publishSensorDiscovery("sensor_reliable", "", "", "mdi:check-circle");
+  publishSensorDiscovery("bme68x_stable", "", "", "mdi:check-circle");
+  publishSensorDiscovery("bme68x_runin_complete", "", "", "mdi:check-circle");
+  
+  // Alert binary sensors
+  publishSensorDiscovery("alert_aqi", "", "", "mdi:alert");
+  publishSensorDiscovery("alert_co2", "", "", "mdi:alert");
+  publishSensorDiscovery("alert_pm25", "", "", "mdi:alert");
+  publishSensorDiscovery("alert_tvoc", "", "", "mdi:alert");
+  publishSensorDiscovery("alert_humidity_low", "", "", "mdi:alert");
+  publishSensorDiscovery("alert_humidity_high", "", "", "mdi:alert");
+  publishSensorDiscovery("ventilation_needed", "", "", "mdi:fan");
+  
+  // Additional sensor values
+  publishSensorDiscovery("tvoc_ppb", "", "ppb", "mdi:air-filter");
+  publishSensorDiscovery("tvoc_mgm3", "", "mg/m³", "mdi:air-filter");
+  publishSensorDiscovery("aqi_color_code", "", "", "mdi:palette");
   
   discoveryPublished = true;
   DEBUG_INFO("Home Assistant discovery configuration published");
@@ -275,7 +326,7 @@ void MQTTManager::update() {
 }
 
 void MQTTManager::publishData(const SensorData& data, float aqi, const String& aqiLevel, 
-                              bool wifiConnected, bool nodeRedResponding) {
+                              bool wifiConnected, DisplayManager& displayManager) {
   if (!mqttClient.connected()) {
     return;
   }
@@ -287,21 +338,49 @@ void MQTTManager::publishData(const SensorData& data, float aqi, const String& a
   
   lastPublishTime = now;
   
-  // Create JSON payload with all sensor data
-  StaticJsonDocument<1024> doc;
+  // Calculate all derived values
+  float dewPoint = 0.0f;
+  float heatIndex = 0.0f;
+  float absoluteHumidity = 0.0f;
+  uint8_t comfortIndex = 0;
+  AlertFlags alerts = {0};
+  uint8_t aqiCategory = getAQICategory(aqi);
+  uint16_t pm25_aqi = 0;
+  uint16_t pm10_aqi = 0;
+  uint16_t iaq_aqi = 0;
   
-  // Environmental data
+  if (data.bme68xAvailable) {
+    dewPoint = calculateDewPoint(data.temperature, data.humidity);
+    heatIndex = calculateHeatIndex(data.temperature, data.humidity);
+    absoluteHumidity = calculateAbsoluteHumidity(data.temperature, data.humidity);
+    comfortIndex = calculateComfortIndex(data.temperature, data.humidity, heatIndex);
+    alerts = calculateAlertFlags(data, aqi);
+    iaq_aqi = calculateIAQtoAQI(data.iaq);
+  }
+  
+  if (data.pms5003Available) {
+    pm25_aqi = calculatePM25AQI(data.pm2_5);
+    pm10_aqi = calculatePM10AQI(data.pm10);
+  }
+  
+  // Create JSON payload with all sensor data (increased size for all fields)
+  StaticJsonDocument<1536> doc;
+  
+  // Direct sensor data - use short names matching discovery config
   if (data.bme68xAvailable) {
     doc["temperature"] = data.temperature;
     doc["humidity"] = data.humidity;
     doc["pressure"] = data.pressure;
     doc["iaq"] = data.iaq;
+    doc["static_iaq"] = data.staticIaq;
     doc["iaq_accuracy"] = data.iaqAccuracy;
     doc["co2"] = data.co2Equivalent;
     doc["co2_accuracy"] = data.co2Accuracy;
     doc["voc"] = data.breathVocEquivalent;
     doc["voc_accuracy"] = data.breathVocAccuracy;
     doc["gas_resistance"] = data.gasResistance;
+    doc["tvoc_ppb"] = (uint16_t)(data.breathVocEquivalent * 1000.0f);
+    doc["tvoc_mgm3"] = data.breathVocEquivalent;
   }
   
   if (data.ds18b20Available) {
@@ -315,14 +394,65 @@ void MQTTManager::publishData(const SensorData& data, float aqi, const String& a
     doc["pm10"] = data.pm10;
   }
   
-  // Calculated values
-  doc["aqi"] = aqi;
-  doc["aqi_level"] = aqiLevel;
+  // Calculated comfort values
+  if (data.bme68xAvailable) {
+    doc["dew_point"] = dewPoint;
+    doc["heat_index"] = heatIndex;
+    doc["absolute_humidity"] = absoluteHumidity;
+    doc["comfort_index"] = comfortIndex;
+  }
   
-  // System data
-  doc["wifi_rssi"] = WiFi.RSSI();
+  // AQI values
+  doc["aqi_index"] = aqi;
+  doc["aqi_category"] = aqiCategory;
+  if (data.pms5003Available) {
+    doc["pm2_5_aqi"] = pm25_aqi;
+    doc["pm10_aqi"] = pm10_aqi;
+  }
+  if (data.bme68xAvailable) {
+    doc["iaq_aqi"] = iaq_aqi;
+  }
+  
+  // System status - use short names matching discovery
+  doc["sensor_reliable"] = ((data.bme68xAvailable && data.iaqAccuracy > 0) || 
+                            (data.pms5003Available && data.pm2_5 > 0) || 
+                            data.ds18b20Available) ? 1 : 0;
+  doc["bme68x_stable"] = (data.bme68xAvailable && data.iaqAccuracy >= 2) ? 1 : 0;
+  doc["bme68x_runin_complete"] = (data.bme68xAvailable && data.iaqAccuracy >= 3) ? 1 : 0;
+  doc["sensors_available_count"] = (data.bme68xAvailable ? 1 : 0) + 
+                                    (data.ds18b20Available ? 1 : 0) + 
+                                    (data.pms5003Available ? 1 : 0);
+  doc["sensor_bme68x_available"] = data.bme68xAvailable ? 1 : 0;
+  doc["sensor_ds18b20_available"] = data.ds18b20Available ? 1 : 0;
+  doc["sensor_pms5003_available"] = data.pms5003Available ? 1 : 0;
+  doc["wifi_rssi"] = wifiConnected ? WiFi.RSSI() : 0;
+  doc["wifi_connected"] = wifiConnected ? 1 : 0;
+  doc["mqtt_connected"] = mqttClient.connected() ? 1 : 0;
+  doc["stealth_mode"] = (displayManager.getStealthMode() == STEALTH_ON) ? 1 : 0;
+  doc["display_enabled"] = displayManager.isDisplayEnabled() ? 1 : 0;
+  doc["current_view"] = (uint8_t)displayManager.getCurrentView();
   doc["uptime"] = (uint32_t)(getUptimeMillis() / 1000);
-  doc["node_red_status"] = nodeRedResponding ? "online" : "offline";
+  doc["free_heap"] = ESP.getFreeHeap();
+  if (wifiConnected) {
+    doc["ip_address"] = WiFi.localIP().toString();
+  } else {
+    doc["ip_address"] = "";
+  }
+  
+  // Alert flags - always include, even if 0
+  doc["alert_aqi"] = (data.bme68xAvailable && alerts.alert_aqi) ? 1 : 0;
+  doc["alert_co2"] = (data.bme68xAvailable && alerts.alert_co2) ? 1 : 0;
+  doc["alert_pm25"] = (data.pms5003Available && alerts.alert_pm25) ? 1 : 0;
+  doc["alert_tvoc"] = (data.bme68xAvailable && alerts.alert_tvoc) ? 1 : 0;
+  doc["alert_humidity_low"] = (data.bme68xAvailable && alerts.alert_humidity_low) ? 1 : 0;
+  doc["alert_humidity_high"] = (data.bme68xAvailable && alerts.alert_humidity_high) ? 1 : 0;
+  doc["ventilation_needed"] = (data.bme68xAvailable && alerts.ventilation_needed) ? 1 : 0;
+  
+  // AQI color code
+  uint32_t aqiColor = calculateAQIColor(aqi);
+  char colorStr[8];
+  snprintf(colorStr, sizeof(colorStr), "#%06X", aqiColor);
+  doc["aqi_color_code"] = colorStr;
   
   // Publish as single JSON message to main state topic
   String payload;
@@ -336,33 +466,6 @@ void MQTTManager::publishData(const SensorData& data, float aqi, const String& a
   } else {
     DEBUG_WARN("Failed to publish sensor data to MQTT");
   }
-  
-  // Also publish individual sensor values for compatibility
-  // This allows Home Assistant to use value_template in discovery
-  if (data.bme68xAvailable) {
-    mqttClient.publish((baseTopic + "/temperature/state").c_str(), String(data.temperature).c_str());
-    mqttClient.publish((baseTopic + "/humidity/state").c_str(), String(data.humidity).c_str());
-    mqttClient.publish((baseTopic + "/pressure/state").c_str(), String(data.pressure).c_str());
-    mqttClient.publish((baseTopic + "/iaq/state").c_str(), String(data.iaq).c_str());
-    mqttClient.publish((baseTopic + "/co2/state").c_str(), String(data.co2Equivalent).c_str());
-    mqttClient.publish((baseTopic + "/voc/state").c_str(), String(data.breathVocEquivalent).c_str());
-  }
-  
-  if (data.ds18b20Available) {
-    mqttClient.publish((baseTopic + "/external_temperature/state").c_str(), String(data.externalTemp).c_str());
-  }
-  
-  if (data.pms5003Available) {
-    mqttClient.publish((baseTopic + "/pm1_0/state").c_str(), String(data.pm1_0).c_str());
-    mqttClient.publish((baseTopic + "/pm2_5/state").c_str(), String(data.pm2_5).c_str());
-    mqttClient.publish((baseTopic + "/pm10/state").c_str(), String(data.pm10).c_str());
-  }
-  
-  mqttClient.publish((baseTopic + "/aqi/state").c_str(), String(aqi).c_str());
-  mqttClient.publish((baseTopic + "/aqi_level/state").c_str(), aqiLevel.c_str());
-  mqttClient.publish((baseTopic + "/wifi_rssi/state").c_str(), String(WiFi.RSSI()).c_str());
-  mqttClient.publish((baseTopic + "/uptime/state").c_str(), String((uint32_t)(getUptimeMillis() / 1000)).c_str());
-  mqttClient.publish((baseTopic + "/node_red_status/state").c_str(), nodeRedResponding ? "online" : "offline");
 }
 
 #endif

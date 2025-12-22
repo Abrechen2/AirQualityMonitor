@@ -1,14 +1,13 @@
-// ===== AIR QUALITY MONITOR V1.1 - STEALTH & BSEC OPTIMIZED =====
-// Advanced version with BSEC LP Mode, Stealth Control, CO2/VOC, Byte Transmission
+// ===== AIR QUALITY MONITOR V1.2 - INTERNAL CALCULATIONS =====
+// Advanced version with BSEC LP Mode, Stealth Control, CO2/VOC, Internal Calculations
 // Author: Dennis Wittke
-// Version: 1.1.0 - Fixed BSEC CO2/VOC Zero Values (LP Mode)
+// Version: 1.2.0 - Node-RED removed, all calculations internal, memory optimized
 // Date: 2025
 
 #include <Arduino.h>
 #include "bsec.h"
 #include <Wire.h>
 #include <WiFi.h>
-#include <HTTPClient.h>
 #include <PubSubClient.h>
 #include <U8g2lib.h>
 #include "PMS.h"
@@ -25,7 +24,8 @@
 #include "DisplayManager.h"
 #include "ButtonHandler.h"
 #include "LEDManager.h"
-#include "ByteTransmission.h"
+#include "WiFiManager.h"
+#include "Calculations.h"
 #include "MQTTManager.h"
 
 // ===== HARDWARE OBJECTS =====
@@ -39,62 +39,14 @@ SensorManager sensorManager(iaqSensor, pms);
 DisplayManager displayManager(u8g2, strip);
 ButtonHandler buttonHandler(displayManager);
 LEDManager ledManager(strip, displayManager);
-ByteTransmissionManager byteManager;
+WiFiManager wifiManager;
 MQTTManager mqttManager;
 
 // ===== GLOBAL VARIABLES =====
 bool wifiConnected = false;
-bool nodeRedResponding = false;  // Node-RED response status
 float calculatedAQI = 50.0;
-String aqiLevel = "Good";
+const char* aqiLevel = "Good";
 uint32_t aqiColorCode = 0x00FF00; // Green
-
-AQIResult calculateLocalAQI(const SensorData& data) {
-  AQIResult result;
-
-  // Validate sensor availability
-  if (!data.pms5003Available) {
-    DEBUG_WARN("PMS5003 not available for AQI calculation");
-    result.success = false;
-    result.aqi = 0;
-    result.level = F("No Data");
-    result.colorCode = 0x808080;  // Gray
-    return result;
-  }
-
-  int pm25 = data.pm2_5;
-  float aqi = 0;
-
-  if (pm25 <= 12) {
-    aqi = pm25 * 50.0 / 12.0;
-    result.level = F("Good");
-    result.colorCode = 0x00FF00;
-  } else if (pm25 <= 35) {
-    aqi = (pm25 - 12.1) * (100.0 - 51.0) / (35.4 - 12.1) + 51.0;
-    result.level = F("Moderate");
-    result.colorCode = 0xFFFF00;
-  } else if (pm25 <= 55) {
-    aqi = (pm25 - 35.5) * (150.0 - 101.0) / (55.4 - 35.5) + 101.0;
-    result.level = F("Poor");
-    result.colorCode = 0xFFA500;
-  } else if (pm25 <= 150) {
-    aqi = (pm25 - 55.5) * (200.0 - 151.0) / (150.4 - 55.5) + 151.0;
-    result.level = F("Unhealthy");
-    result.colorCode = 0xFF0000;
-  } else if (pm25 <= 250) {
-    aqi = (pm25 - 150.5) * (300.0 - 201.0) / (250.4 - 150.5) + 201.0;
-    result.level = F("Very poor");
-    result.colorCode = 0x800080;
-  } else {
-    aqi = (pm25 - 250.5) * (500.0 - 301.0) / (500.4 - 250.5) + 301.0;
-    result.level = F("Hazardous");
-    result.colorCode = 0x7E0023;
-  }
-
-  result.aqi = aqi;
-  result.success = true;
-  return result;
-}
 
 void setup() {
   Serial.begin(115200);
@@ -130,11 +82,11 @@ void setup() {
 
   // Connect to WiFi
   displayManager.showMessage("Connecting WiFi...");
-  wifiConnected = byteManager.connectWiFi();
+  wifiConnected = wifiManager.connect();
 
   if (wifiConnected) {
     displayManager.showMessage("WiFi connected!", 1000);
-    String ip = WiFi.localIP().toString();
+    String ip = wifiManager.getIPAddress();
     displayManager.showMessage("IP: " + ip, 2000);
     DEBUG_INFO("WiFi connected successfully");
     
@@ -186,43 +138,19 @@ void loop() {
       loopDebugCount++;
     }
 
-    AQIResult local = calculateLocalAQI(data);
+    // Calculate AQI internally using Calculations.h
+    calculatedAQI = calculateCombinedAQI(data);
+    aqiLevel = getAQILevelString(calculatedAQI);
+    aqiColorCode = calculateAQIColor(calculatedAQI);
 
-    if (wifiConnected) {
-      if (byteManager.isTimeToSend()) {
-        AQIResult net = byteManager.sendDataAndGetAQI(data);
-        if (net.success) {
-          calculatedAQI = net.aqi;
-          aqiLevel = net.level;
-          aqiColorCode = net.colorCode;
-          nodeRedResponding = true;
-          DEBUG_INFO("Received AQI from Node-RED: %.1f (%s)", calculatedAQI, aqiLevel.c_str());
-        } else {
-          nodeRedResponding = false;
-          calculatedAQI = local.aqi;
-          aqiLevel = local.level;
-          aqiColorCode = local.colorCode;
-          DEBUG_WARN("Node-RED timeout or error");
-        }
-      } else if (!nodeRedResponding) {
-        calculatedAQI = local.aqi;
-        aqiLevel = local.level;
-        aqiColorCode = local.colorCode;
-      }
-    } else {
-      nodeRedResponding = false;
-      calculatedAQI = local.aqi;
-      aqiLevel = local.level;
-      aqiColorCode = local.colorCode;
-    }
-
-    displayManager.updateDisplay(data, calculatedAQI, aqiLevel, wifiConnected, nodeRedResponding);
-    ledManager.updateLEDs(aqiColorCode);
+    // Update display and LEDs
+    displayManager.updateDisplay(data, calculatedAQI, String(aqiLevel), wifiConnected);
+    ledManager.updateLEDsWithTransition(aqiColorCode);
     
-    // Publish data to MQTT (parallel to Node-RED)
+    // Publish data to MQTT with all calculated values
     if (wifiConnected) {
       mqttManager.update();
-      mqttManager.publishData(data, calculatedAQI, aqiLevel, wifiConnected, nodeRedResponding);
+      mqttManager.publishData(data, calculatedAQI, String(aqiLevel), wifiConnected, displayManager);
     }
   }
 
@@ -232,8 +160,11 @@ void loop() {
   }
 
   // Check WiFi connection
-  if (wifiConnected && WiFi.status() != WL_CONNECTED) {
+  if (wifiConnected && !wifiManager.isConnected()) {
     DEBUG_WARN("WiFi lost - attempting reconnection");
-    wifiConnected = byteManager.connectWiFi();
+    wifiConnected = wifiManager.connect();
   }
+  
+  // Always update LED transitions (even when no sensor update)
+  ledManager.updateLEDsWithTransition(aqiColorCode);
 }
