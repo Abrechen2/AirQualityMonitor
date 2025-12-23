@@ -30,6 +30,13 @@
 #define SENSOR_READ_INTERVAL 3000     // 3 seconds (BSEC ULP mode compromise)
 #define WIFI_CONNECT_TIMEOUT 15000    // 15 seconds
 #define STEALTH_TEMP_ON_MS 20000      // 20 seconds temporary activation
+#define LED_TRANSITION_STEPS 20       // Number of steps for smooth color transition
+#define LED_TRANSITION_INTERVAL_MS 50 // Time between transition steps (ms)
+
+// ===== MQTT CONFIGURATION =====
+#define MQTT_PUBLISH_INTERVAL 10000   // 10 seconds (synchronized with DATA_SEND_INTERVAL)
+#define MQTT_RECONNECT_INTERVAL 5000  // 5 seconds between reconnect attempts
+#define MQTT_MAX_PACKET_SIZE 1024     // Maximum MQTT packet size (bytes)
 
 // ===== SENSOR CONFIGURATION =====
 #define DEFAULT_TEMP_CORRECTION -3.5
@@ -38,6 +45,46 @@
 // BSEC configuration
 #define BSEC_STATE_SAVE_INTERVAL 21600000  // 6 hours in ms
 #define BSEC_BASELINE_EEPROM_ADDR 0
+
+// ===== VALIDATION CONSTANTS =====
+// Sensor value ranges for plausibility checks
+#define TEMP_MIN -40.0f          // Minimum valid temperature (°C)
+#define TEMP_MAX 85.0f           // Maximum valid temperature (°C)
+#define HUMIDITY_MIN 0.0f        // Minimum valid humidity (%)
+#define HUMIDITY_MAX 100.0f      // Maximum valid humidity (%)
+#define PRESSURE_MIN 300.0f      // Minimum valid pressure (hPa)
+#define PRESSURE_MAX 1100.0f     // Maximum valid pressure (hPa)
+#define IAQ_MIN 0.0f             // Minimum valid IAQ
+#define IAQ_MAX 500.0f           // Maximum valid IAQ
+#define CO2_MIN 400.0f           // Minimum valid CO2 (ppm)
+#define CO2_MAX 40000.0f         // Maximum valid CO2 (ppm)
+#define VOC_MIN 0.0f             // Minimum valid VOC (mg/m³)
+#define VOC_MAX 60.0f            // Maximum valid VOC (mg/m³)
+#define PM_MIN 0                 // Minimum valid PM value (µg/m³)
+#define PM_MAX 1000              // Maximum valid PM value (µg/m³)
+
+// HTTP/Network constants
+#define HTTP_MAX_RESPONSE_SIZE 1024        // Maximum HTTP response size (bytes)
+#define HTTP_TIMEOUT_MS 5000               // HTTP request timeout (ms)
+#define HTTP_AQI_TIMEOUT_MS 3000           // AQI request timeout (ms)
+#define JSON_MAX_SIZE 256                  // Maximum JSON document size (bytes)
+
+// PMS5003 constants
+#define PMS_READ_TIMEOUT_MS 1000           // PMS5003 read timeout (ms)
+#define PMS_WAKE_TIME_MS 2000              // PMS5003 wake time (ms)
+#define PMS_RETRY_COUNT 2                  // Maximum retry attempts for PMS5003
+
+// DS18B20 constants
+#define DS18B20_CONVERSION_TIME_MS 750    // DS18B20 conversion time (ms)
+#define DS18B20_READ_INTERVAL_MS 10000     // DS18B20 read interval (ms)
+
+// Type conversion limits (for overflow protection)
+#define INT16_TEMP_MAX 3276               // Max temp * 100 for int16_t (32.76°C)
+#define INT16_TEMP_MIN -3276              // Min temp * 100 for int16_t (-32.76°C)
+#define UINT16_HUMIDITY_MAX 10000         // Max humidity * 100 for uint16_t (100.00%)
+#define UINT16_PRESSURE_MAX 6553          // Max pressure * 10 for uint16_t (655.3 hPa)
+#define UINT16_IAQ_MAX 5000               // Max IAQ * 10 for uint16_t (500.0)
+#define UINT16_VOC_MAX 6000               // Max VOC * 100 for uint16_t (60.00 mg/m³)
 
 // ===== DISPLAY VIEWS =====
 enum DisplayView {
@@ -62,8 +109,22 @@ enum StealthMode {
 // Requires: WiFiManager library (https://github.com/tzapu/WiFiManager)
 // #define USE_WIFI_MANAGER 1
 
+// ===== ERROR CODES =====
+enum ErrorCode {
+  ERROR_NONE = 0,
+  ERROR_SENSOR_INIT_FAILED = 1,
+  ERROR_SENSOR_READ_FAILED = 2,
+  ERROR_WIFI_CONNECT_FAILED = 3,
+  ERROR_MQTT_CONNECT_FAILED = 4,
+  ERROR_HTTP_REQUEST_FAILED = 5,
+  ERROR_JSON_PARSE_FAILED = 6,
+  ERROR_EEPROM_FAILED = 7,
+  ERROR_INVALID_DATA = 8,
+  ERROR_OVERFLOW = 9
+};
+
 // ===== DEBUG CONFIGURATION =====
-#define DEBUG_ENABLED 1
+#define DEBUG_ENABLED 0
 
 #if DEBUG_ENABLED
   // Basic debug macros
