@@ -46,6 +46,10 @@
 #define BSEC_STATE_SAVE_INTERVAL 21600000  // 6 hours in ms
 #define BSEC_BASELINE_EEPROM_ADDR 0
 
+// Config storage in EEPROM (after BSEC state)
+#define CONFIG_EEPROM_ADDR 512             // Start address for config storage
+#define CONFIG_EEPROM_SIZE 256             // Size allocated for config (max 512 total)
+
 // ===== VALIDATION CONSTANTS =====
 // Sensor value ranges for plausibility checks
 #define TEMP_MIN -40.0f          // Minimum valid temperature (°C)
@@ -124,7 +128,7 @@ enum ErrorCode {
 };
 
 // ===== DEBUG CONFIGURATION =====
-#define DEBUG_ENABLED 0
+#define DEBUG_ENABLED 1
 
 #if DEBUG_ENABLED
   // Basic debug macros

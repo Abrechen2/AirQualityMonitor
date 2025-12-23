@@ -159,11 +159,11 @@ SensorManager::SensorManager(Bsec& bsec, PMS& pms)
 bool SensorManager::init() {
   DEBUG_INFO("Initializing sensors...");
 
-  // EEPROM for BSEC state (needs 221 bytes minimum)
-  if (!EEPROM.begin(512)) {  // Use 512 bytes to be safe
+  // EEPROM for BSEC state (needs 221 bytes minimum) + Config storage (256 bytes)
+  if (!EEPROM.begin(1024)) {  // Use 1024 bytes: 512 for BSEC state, 512 for config
     DEBUG_ERROR("EEPROM initialization failed!");
   } else {
-    DEBUG_INFO("EEPROM initialized (512 bytes)");
+    DEBUG_INFO("EEPROM initialized (1024 bytes)");
   }
 
   bool success = true;

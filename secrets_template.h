@@ -38,4 +38,19 @@
 // Optional: Custom device ID (leave commented to use MAC address)
 // #define MQTT_DEVICE_ID "custom_device_id"
 
+// ===== OTA UPDATE CONFIGURATION =====
+// Arduino OTA (Over-The-Air) update password
+// Uncomment and set if you want password protection for OTA updates
+// The password will be required when uploading via Arduino IDE "Upload via Network"
+// #define OTA_PASSWORD "your_ota_password"
+
+// ===== DEVICE CONFIGURATION =====
+// Optional: Device hostname (leave commented to use MAC-based hostname)
+// Used for OTA updates and mDNS
+// #define HOSTNAME "AirQualityMonitor"
+
+// Optional: MQTT topic (leave commented to use MAC-based topic)
+// Used as base topic for MQTT messages (e.g., "ENV-Wohn_Dennis/state", "ENV-Wohn_Dennis/status")
+// #define MQTT_TOPIC "ENV-Wohn_Dennis"
+
 #endif

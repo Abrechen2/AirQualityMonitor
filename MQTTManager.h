@@ -6,7 +6,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "config.h"
-#include "secrets.h"
+#include "ConfigManager.h"
 #include "SensorManager.h"
 #include "DisplayManager.h"
 #include "Calculations.h"
@@ -24,6 +24,7 @@ class MQTTManager {
 private:
   WiFiClient wifiClient;
   PubSubClient mqttClient;
+  ConfigManager* configManager;
   
   unsigned long lastPublishTime = 0;
   unsigned long lastReconnectAttempt = 0;
@@ -43,8 +44,9 @@ private:
 public:
   /**
    * @brief Constructor - initializes device ID and topics
+   * @param config ConfigManager instance for MQTT configuration
    */
-  MQTTManager();
+  MQTTManager(ConfigManager* config);
   
   /**
    * @brief Initialize MQTT client
@@ -86,9 +88,20 @@ private:
 };
 
 // ===== IMPLEMENTATION =====
-MQTTManager::MQTTManager() : mqttClient(wifiClient) {
+MQTTManager::MQTTManager(ConfigManager* config) : mqttClient(wifiClient), configManager(config) {
   deviceUniqueId = getMacAddress();
-  baseTopic = "airqualitymonitor/" + deviceUniqueId;
+  
+  // Use Tasmota-format: tele/{device_id}
+  // Priority: Hostname > MQTT Topic > MAC-based fallback
+  if (config != nullptr && strlen(config->getHostname()) > 0) {
+    baseTopic = "tele/" + String(config->getHostname());
+  } else if (config != nullptr && strlen(config->getMqttTopic()) > 0) {
+    baseTopic = "tele/" + String(config->getMqttTopic());
+  } else {
+    baseTopic = "tele/airqualitymonitor_" + deviceUniqueId;
+  }
+  
+  // Discovery prefix always uses deviceUniqueId for compatibility
   discoveryPrefix = "homeassistant/sensor/airqualitymonitor_" + deviceUniqueId;
 }
 
@@ -104,10 +117,12 @@ String MQTTManager::getMacAddress() const {
 String MQTTManager::createDeviceInfo() const {
   StaticJsonDocument<256> device;
   device["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
-  device["name"] = "Air Quality Monitor";
+  device["name"] = (configManager && strlen(configManager->getHostname()) > 0)
+    ? String(configManager->getHostname())
+    : "Air Quality Monitor";
   device["manufacturer"] = "Abrechen2";
-  device["model"] = "ESP32 Air Quality Monitor v1.2";
-  device["sw_version"] = "1.2.0";
+  device["model"] = "Air Quality Monitor v1.5";
+  device["sw_version"] = "1.5.1";
   
   String deviceInfo;
   serializeJson(device, deviceInfo);
@@ -119,7 +134,14 @@ void MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
                                          const String& valueTemplate) {
   StaticJsonDocument<512> config;
   
-  config["name"] = sensorName;
+  // Name can include hostname for better readability, but unique_id must always be unique
+  if (configManager && strlen(configManager->getHostname()) > 0) {
+    config["name"] = String(configManager->getHostname()) + " " + sensorName;
+  } else {
+    config["name"] = sensorName;
+  }
+  
+  // unique_id must always be unique - use full identifier regardless of hostname
   config["unique_id"] = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
   config["state_topic"] = baseTopic + "/state";
   config["availability_topic"] = baseTopic + "/status";
@@ -152,10 +174,12 @@ void MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
     // Fallback: create device info inline if deserialization fails
     StaticJsonDocument<256> device;
     device["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
-    device["name"] = "Air Quality Monitor";
+    device["name"] = (configManager && strlen(configManager->getHostname()) > 0)
+      ? String(configManager->getHostname())
+      : "Air Quality Monitor";
     device["manufacturer"] = "Abrechen2";
-    device["model"] = "ESP32 Air Quality Monitor v1.1";
-    device["sw_version"] = "1.1.0";
+    device["model"] = "Air Quality Monitor v1.5";
+    device["sw_version"] = "1.5.1";
     config["device"] = device;
   }
   
@@ -189,6 +213,8 @@ void MQTTManager::publishDiscoveryConfig() {
   // Air quality sensors
   publishSensorDiscovery("iaq", "", "", "mdi:air-filter");
   publishSensorDiscovery("iaq_accuracy", "", "", "mdi:check-circle");
+  publishSensorDiscovery("static_iaq", "", "", "mdi:air-filter");
+  publishSensorDiscovery("static_iaq_accuracy", "", "", "mdi:check-circle");
   publishSensorDiscovery("co2", "carbon_dioxide", "ppm", "mdi:molecule-co2");
   publishSensorDiscovery("co2_accuracy", "", "", "mdi:check-circle");
   publishSensorDiscovery("voc", "volatile_organic_compounds", "mg/m³", "mdi:air-filter");
@@ -212,7 +238,7 @@ void MQTTManager::publishDiscoveryConfig() {
   publishSensorDiscovery("pm2_5_aqi", "", "", "mdi:air-filter");
   publishSensorDiscovery("pm10_aqi", "", "", "mdi:air-filter");
   publishSensorDiscovery("iaq_aqi", "", "", "mdi:air-filter");
-  publishSensorDiscovery("static_iaq", "", "", "mdi:air-filter");
+  publishSensorDiscovery("bsec_calibrated", "", "", "mdi:check-circle");
   
   // System sensors
   publishSensorDiscovery("wifi_rssi", "signal_strength", "dBm", "mdi:wifi");
@@ -256,11 +282,16 @@ void MQTTManager::publishAvailability() {
 }
 
 bool MQTTManager::init() {
+  if (configManager == nullptr) {
+    DEBUG_ERROR("ConfigManager not initialized");
+    return false;
+  }
+  
   DEBUG_INFO("Initializing MQTT Manager...");
   DEBUG_INFO("Device ID: %s", deviceUniqueId.c_str());
   DEBUG_INFO("Base topic: %s", baseTopic.c_str());
   
-  mqttClient.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+  mqttClient.setServer(configManager->getMqttBrokerHost(), configManager->getMqttBrokerPort());
   mqttClient.setBufferSize(MQTT_MAX_PACKET_SIZE);
   mqttClient.setKeepAlive(60);
   
@@ -272,7 +303,7 @@ bool MQTTManager::connect() {
     return true;
   }
   
-  DEBUG_INFO("Connecting to MQTT broker %s:%d...", MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+  DEBUG_INFO("Connecting to MQTT broker %s:%d...", configManager->getMqttBrokerHost(), configManager->getMqttBrokerPort());
   
   String clientId = "AirQualityMonitor_" + deviceUniqueId;
   bool connected = false;
@@ -374,11 +405,13 @@ void MQTTManager::publishData(const SensorData& data, float aqi, const String& a
     doc["iaq"] = data.iaq;
     doc["static_iaq"] = data.staticIaq;
     doc["iaq_accuracy"] = data.iaqAccuracy;
+    doc["static_iaq_accuracy"] = data.staticIaqAccuracy;
     doc["co2"] = data.co2Equivalent;
     doc["co2_accuracy"] = data.co2Accuracy;
     doc["voc"] = data.breathVocEquivalent;
     doc["voc_accuracy"] = data.breathVocAccuracy;
     doc["gas_resistance"] = data.gasResistance;
+    doc["bsec_calibrated"] = data.bsecCalibrated ? 1 : 0;
     doc["tvoc_ppb"] = (uint16_t)(data.breathVocEquivalent * 1000.0f);
     doc["tvoc_mgm3"] = data.breathVocEquivalent;
   }

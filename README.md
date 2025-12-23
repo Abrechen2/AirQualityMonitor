@@ -87,7 +87,15 @@ Button:  Select → GPIO33
 ### 2. Software Requirements
 - **Arduino IDE** or **PlatformIO**
 - **ESP32 board package**
-- **Libraries**: BSEC, PMS, DallasTemperature, U8g2lib, NeoPixel
+  - **Libraries**: 
+    - BSEC (Bosch Sensortec Environmental Cluster)
+    - PMS (PMS5003 sensor library)
+    - DallasTemperature (DS18B20 temperature sensor)
+    - U8g2lib (OLED display)
+    - NeoPixel (WS2812B RGB LEDs)
+    - ArduinoJson
+    - PubSubClient (MQTT)
+    - ArduinoOTA (for over-the-air updates)
 
 ### 3. Configuration
 1. Clone the repository:

@@ -1,7 +1,7 @@
-// ===== AIR QUALITY MONITOR V1.2 - INTERNAL CALCULATIONS =====
+// ===== AIR QUALITY MONITOR V1.5.1 - INTERNAL CALCULATIONS =====
 // Advanced version with BSEC LP Mode, Stealth Control, CO2/VOC, Internal Calculations
 // Author: Dennis Wittke
-// Version: 1.2.0 - Node-RED removed, all calculations internal, memory optimized
+// Version: 1.5.1 - Bugfixes and stability improvements
 // Date: 2025
 
 #include <Arduino.h>
@@ -16,10 +16,12 @@
 #include <Adafruit_NeoPixel.h>
 #include <ArduinoJson.h>
 #include <EEPROM.h>
+#include <ArduinoOTA.h>
 
 // Project includes
 #include "config.h"
 #include "secrets.h"
+#include "ConfigManager.h"
 #include "SensorManager.h"
 #include "DisplayManager.h"
 #include "ButtonHandler.h"
@@ -35,12 +37,13 @@ PMS pms(Serial1);
 U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, DISPLAY_SCL, DISPLAY_SDA);
 
 // ===== SYSTEM OBJECTS =====
+ConfigManager configManager;
 SensorManager sensorManager(iaqSensor, pms);
 DisplayManager displayManager(u8g2, strip);
 ButtonHandler buttonHandler(displayManager);
 LEDManager ledManager(strip, displayManager);
-WiFiManager wifiManager;
-MQTTManager mqttManager;
+WiFiManager wifiManager(&configManager);
+MQTTManager mqttManager(&configManager);
 
 // ===== GLOBAL VARIABLES =====
 bool wifiConnected = false;
@@ -53,6 +56,14 @@ void setup() {
   delay(1000);
   
   DEBUG_INFO("=== Air Quality Monitor starting ===");
+  
+  // Print ESP32 Core version information
+  #if defined(ESP32)
+    DEBUG_INFO("ESP32 Arduino Core Version: %s", ESP.getSdkVersion());
+    DEBUG_INFO("ESP32 Chip Model: %s", ESP.getChipModel());
+    DEBUG_INFO("ESP32 Chip Revision: %d", ESP.getChipRevision());
+    DEBUG_INFO("ESP32 CPU Frequency: %d MHz", ESP.getCpuFreqMHz());
+  #endif
  
   // Initialize hardware
   Wire.begin(DISPLAY_SDA, DISPLAY_SCL);
@@ -70,7 +81,7 @@ void setup() {
   // Show startup messages
   displayManager.showMessage("System starting...");
 
-  // Initialize sensors
+  // Initialize sensors (also initializes EEPROM)
   displayManager.showMessage("Initializing sensors...");
   bool sensorsOK = sensorManager.init();
   
@@ -78,6 +89,11 @@ void setup() {
     displayManager.showMessage("Sensors OK!", 1000);
   } else {
     displayManager.showMessage("Sensor warning!", 5000);
+  }
+
+  // Initialize config manager (after EEPROM is initialized)
+  if (!configManager.init()) {
+    DEBUG_ERROR("ConfigManager initialization failed");
   }
 
   // Connect to WiFi
@@ -97,6 +113,9 @@ void setup() {
     } else {
       DEBUG_WARN("MQTT connection failed - will retry in loop");
     }
+    
+    // Initialize Arduino OTA
+    initOTA();
   } else {
     displayManager.showMessage("Offline mode", 5000);
     DEBUG_WARN("WiFi connection failed - offline mode");
@@ -157,14 +176,81 @@ void loop() {
   // Update MQTT connection (even when no sensor data update)
   if (wifiConnected) {
     mqttManager.update();
+    
+    // Handle Arduino OTA updates
+    ArduinoOTA.handle();
   }
 
   // Check WiFi connection
   if (wifiConnected && !wifiManager.isConnected()) {
     DEBUG_WARN("WiFi lost - attempting reconnection");
     wifiConnected = wifiManager.connect();
+    if (wifiConnected) {
+      // Reinitialize OTA after WiFi reconnection
+      initOTA();
+    }
   }
   
   // Always update LED transitions (even when no sensor update)
   ledManager.updateLEDsWithTransition(aqiColorCode);
+}
+
+// ===== ARDUINO OTA FUNCTIONS =====
+void initOTA() {
+  DEBUG_INFO("Initializing Arduino OTA...");
+  
+  // Set hostname - use configured hostname if available, otherwise fallback to MAC-based
+  String hostname;
+  if (strlen(configManager.getHostname()) > 0) {
+    hostname = String(configManager.getHostname());
+  } else {
+    hostname = "AirQualityMonitor_" + WiFi.macAddress();
+    hostname.replace(":", "");
+  }
+  ArduinoOTA.setHostname(hostname.c_str());
+  
+  // Set password if configured
+  #ifdef OTA_PASSWORD
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+    DEBUG_INFO("OTA password protection enabled");
+  #else
+    DEBUG_WARN("OTA password not set - updates are unprotected!");
+  #endif
+  
+  // OTA callbacks
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH) {
+      type = "sketch";
+    } else { // U_SPIFFS
+      type = "filesystem";
+    }
+    DEBUG_INFO("Start updating %s", type.c_str());
+  });
+  
+  ArduinoOTA.onEnd([]() {
+    DEBUG_INFO("\nEnd");
+  });
+  
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    DEBUG_INFO("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  
+  ArduinoOTA.onError([](ota_error_t error) {
+    DEBUG_ERROR("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) {
+      DEBUG_ERROR("Auth Failed");
+    } else if (error == OTA_BEGIN_ERROR) {
+      DEBUG_ERROR("Begin Failed");
+    } else if (error == OTA_CONNECT_ERROR) {
+      DEBUG_ERROR("Connect Failed");
+    } else if (error == OTA_RECEIVE_ERROR) {
+      DEBUG_ERROR("Receive Failed");
+    } else if (error == OTA_END_ERROR) {
+      DEBUG_ERROR("End Failed");
+    }
+  });
+  
+  ArduinoOTA.begin();
+  DEBUG_INFO("Arduino OTA ready - Hostname: %s", hostname.c_str());
 }
