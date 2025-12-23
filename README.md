@@ -1,6 +1,6 @@
-# 🌪️ ESP32 Air Quality Monitor v1.1.0
+# 🌪️ ESP32 Air Quality Monitor v1.5.1
 
-![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen) ![Version](https://img.shields.io/badge/Version-1.1.0-blue)
+![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen) ![Version](https://img.shields.io/badge/Version-1.5.1-blue)
 
 Enclosure on Printables: <https://www.printables.com/model/1400485-esp32-air-quality-monitor-beluftetes-sensorgehause>
 
@@ -12,9 +12,10 @@ This project implements a complete air‑quality monitoring station with:
 - **Real CO₂ and TVOC values** (calculated with BME680 + BSEC)
 - **Particulate matter measurement** (PM1.0, PM2.5, PM10)
 - **Precise temperature measurement** via external DS18B20
-- **Binary data transmission** for minimal latency
+- **MQTT Home Assistant integration** with automatic discovery
+- **Internal AQI calculation** (no external dependencies)
 - **OLED display** for local visualization
-- **RGB LED status indicator**
+- **RGB LED status indicator** with smooth color transitions
 
 ## 🔧 Hardware Components
 
@@ -40,10 +41,12 @@ This project implements a complete air‑quality monitoring station with:
 - **CO₂ equivalent** and **TVOC equivalent** calculation
 - **Adaptive calibration algorithm**
 
-### 📡 Optimized Data Transmission
-- **44‑byte binary protocol** for minimal overhead
-- **Checksum validation** for data integrity
+### 📡 MQTT Home Assistant Integration
+- **Automatic device discovery** via MQTT discovery protocol
+- **Comprehensive sensor data** (50+ sensors including calculated values)
+- **Real-time updates** every 10 seconds
 - **Wi‑Fi auto‑reconnect** with fallback modes
+- **All calculations performed internally** on ESP32 (no external dependencies)
 
 ### 🔋 Energy Efficiency
 - **BSEC LP mode** (Low Power, 3s interval for reliable CO₂/VOC)
@@ -98,15 +101,19 @@ cd AirQualityMonitor
 cp secrets_template.h secrets.h
 ```
 
-3. Enter Wi‑Fi credentials in `secrets.h`:
+3. Enter Wi‑Fi and MQTT credentials in `secrets.h`:
 ```cpp
 // ===== WIFI CONFIGURATION =====
-#define WIFI_SSID "SSID"
-#define WIFI_PASSWORD "ENTER_PASSWORD_HERE"
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_PASSWORD"
 
-// ===== NODE‑RED ENDPOINTS =====
-#define NODERED_SEND_URL "http://YOUR_SERVER:1880/sensor-data"
-#define NODERED_AQI_URL "http://YOUR_SERVER:1880/calculate-aqi"
+// ===== MQTT CONFIGURATION =====
+#define MQTT_BROKER_HOST "192.168.1.100"  // Your MQTT broker IP or hostname
+#define MQTT_BROKER_PORT 1883              // MQTT port (usually 1883, use 8883 for SSL/TLS)
+
+// Optional: MQTT authentication (comment out if not needed)
+// #define MQTT_USERNAME "your_mqtt_username"
+// #define MQTT_PASSWORD "your_mqtt_password"
 ```
 
 4. Upload the code to the ESP32
@@ -124,28 +131,56 @@ cp secrets_template.h secrets.h
 ## 📈 Data Format
 
 ### Binary Transmission (44 bytes)
+All sensor data is published as a single JSON message to the MQTT state topic:
 ```
-Header (4B) + BME680 (24B) + DS18B20 (3B) + PMS5003 (7B) + System (5B) + Checksum (1B)
+homeassistant/sensor/airqualitymonitor_<MAC>/state
 ```
 
-### JSON API for AQI Calculation
+Example JSON payload:
 ```json
 {
-  "pm2_5": 15,
-  "pm10": 25,
+  "temperature": 19.8,
+  "humidity": 37.3,
+  "pressure": 952.83,
   "iaq": 75,
-  "co2": 650,
-  "calibrated": true
+  "iaq_accuracy": 3,
+  "co2": 600.92,
+  "co2_accuracy": 3,
+  "voc": 0.50,
+  "voc_accuracy": 3,
+  "pm1_0": 1,
+  "pm2_5": 3,
+  "pm10": 4,
+  "aqi_index": 25,
+  "aqi_category": 0,
+  "dew_point": 4.2,
+  "heat_index": 19.5,
+  "absolute_humidity": 6.8,
+  "comfort_index": 75,
+  "wifi_connected": 1,
+  "mqtt_connected": 1,
+  "uptime": 3600,
+  "free_heap": 150000
 }
 ```
 
+### Home Assistant Discovery
+The device automatically publishes discovery configurations for all sensors, binary sensors, and text sensors. Home Assistant will automatically create entities for:
+- **Environmental sensors**: temperature, humidity, pressure, external_temperature
+- **Air quality sensors**: IAQ, CO₂, VOC, gas resistance
+- **Particulate matter**: PM1.0, PM2.5, PM10
+- **Calculated values**: AQI index, AQI category, dew point, heat index, absolute humidity, comfort index
+- **System status**: WiFi status, MQTT status, uptime, free heap, IP address, stealth mode, display status
+- **Alert sensors**: AQI alerts, CO₂ alerts, PM2.5 alerts, TVOC alerts, humidity alerts, ventilation needed
+
 ## 🎯 Use Cases
 
-- **Smart home integration**
+- **Smart home integration** via Home Assistant
 - **Office air‑quality monitoring**
 - **Allergy and asthma prevention**
 - **HVAC system optimization**
 - **Air‑filter efficiency monitoring**
+- **Automated ventilation control** based on air quality alerts
 
 ## 📋 Status LEDs
 
@@ -204,11 +239,13 @@ AirQualityMonitor/
 ├── DisplayManager.h         # OLED display
 ├── ButtonHandler.h          # Button control
 ├── LEDManager.h             # RGB LED control
-├── ByteTransmission.h       # Binary data transmission
+├── WiFiManager.h            # WiFi connection management
+├── MQTTManager.h            # MQTT and Home Assistant integration
+├── Calculations.h           # Internal AQI and comfort calculations
 ├── TimeUtils.h              # Time and scheduling helpers
 ├── DATENPUNKTE.md          # Documentation of data points (German)
 ├── Schematics/              # KiCad project and PDFs
-├── NodeRed/                 # Node‑RED flows
+├── NodeRed/                 # Legacy Node‑RED flows (deprecated)
 ├── Printdata/               # STL and STEP files for enclosure
 ├── Pictures/                # Photos of the device
 ├── LICENSE                  # MIT license
@@ -233,6 +270,8 @@ Contributions are welcome! Please:
 **Abrechen2**
 
 ### Version History
+- **v1.5.1** (2025) – Bugfixes and stability improvements
+- **v1.2.0** (2025) – MQTT Home Assistant integration, internal AQI calculation, removed Node-RED dependency
 - **v1.1.0** (2025) – Fixed BSEC CO₂/VOC zero values issue by switching from ULP to LP mode
 - **v1.0.0** (2025) – Complete Stealth & Gas Sensor Integration + Byte Transmission
 
@@ -241,6 +280,45 @@ Contributions are welcome! Please:
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ## 📋 Changelog
+
+### v1.5.1 (2025)
+**Bugfixes:**
+- Fixed MQTT discovery sensor names (removed duplicate "Air Quality Monitor" prefix)
+- Fixed JSON field names to match Home Assistant discovery configuration
+- Fixed missing sensor values in Home Assistant (all fields now properly published)
+- Improved MQTT data publishing reliability
+- Fixed const-correctness issues in MQTTManager
+- Fixed display buffer send error handling
+
+**Technical Details:**
+- Simplified sensor names for better Home Assistant integration
+- All JSON field names now match discovery configuration exactly
+- Alert flags always included in JSON (even when 0)
+- Improved error handling and code stability
+
+### v1.2.0 (2025)
+**Major Changes:**
+- **Removed Node-RED dependency** - All calculations now performed internally on ESP32
+- **Added MQTT Home Assistant integration** with automatic device discovery
+- **Comprehensive sensor data** - 50+ sensors including calculated values, alerts, and system status
+- **Internal AQI calculation** - Combined AQI from PM2.5, PM10, CO₂, VOC, and IAQ
+- **Comfort calculations** - Dew point, heat index, absolute humidity, comfort index
+- **Alert system** - Automatic alerts for high AQI, CO₂, PM2.5, TVOC, and humidity
+- **Smooth LED transitions** - Gradual color changes for better visual feedback
+- **Memory optimization** - Replaced String objects with const char* where possible
+
+**Technical Details:**
+- All AQI calculations moved to `Calculations.h` module
+- MQTT discovery publishes configurations for all sensors automatically
+- Single JSON state topic contains all sensor data
+- Simplified field names for better Home Assistant integration
+- WiFi management separated into `WiFiManager.h` module
+- Removed binary transmission protocol in favor of MQTT JSON
+
+**Breaking Changes:**
+- Node-RED endpoints removed from `secrets.h`
+- MQTT configuration now required
+- Old Node-RED flows are deprecated (still available in `NodeRed/` folder)
 
 ### v1.1.0 (2025-11-15)
 **Fixed:**
