@@ -28,10 +28,13 @@ private:
   
   unsigned long lastPublishTime = 0;
   unsigned long lastReconnectAttempt = 0;
+  unsigned long lastStatusUpdate = 0;
   bool discoveryPublished = false;
   String deviceUniqueId;
   String baseTopic;
   String discoveryPrefix;
+  String binarySensorDiscoveryPrefix;
+  String statusTopic;
   
   // Helper functions
   String getMacAddress() const;
@@ -39,7 +42,10 @@ private:
   void publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
                               const String& unit, const String& icon, 
                               const String& valueTemplate = "");
+  void publishBinarySensorDiscovery(const String& sensorName, const String& deviceClass, 
+                                    const String& icon, const String& valueTemplate = "");
   void publishAvailability();
+  void publishOffline();
   
 public:
   /**
@@ -101,8 +107,12 @@ MQTTManager::MQTTManager(ConfigManager* config) : mqttClient(wifiClient), config
     baseTopic = "tele/airqualitymonitor_" + deviceUniqueId;
   }
   
+  // Status topic for availability
+  statusTopic = baseTopic + "/status";
+  
   // Discovery prefix always uses deviceUniqueId for compatibility
   discoveryPrefix = "homeassistant/sensor/airqualitymonitor_" + deviceUniqueId;
+  binarySensorDiscoveryPrefix = "homeassistant/binary_sensor/airqualitymonitor_" + deviceUniqueId;
 }
 
 String MQTTManager::getMacAddress() const {
@@ -144,7 +154,7 @@ void MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
   // unique_id must always be unique - use full identifier regardless of hostname
   config["unique_id"] = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
   config["state_topic"] = baseTopic + "/state";
-  config["availability_topic"] = baseTopic + "/status";
+  config["availability_topic"] = statusTopic;
   
   // Use value_template to extract from JSON state
   if (valueTemplate.length() > 0) {
@@ -192,6 +202,72 @@ void MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
     DEBUG_INFO("Published discovery for %s", sensorName.c_str());
   } else {
     DEBUG_WARN("Failed to publish discovery for %s", sensorName.c_str());
+  }
+}
+
+void MQTTManager::publishBinarySensorDiscovery(const String& sensorName, const String& deviceClass, 
+                                               const String& icon, const String& valueTemplate) {
+  StaticJsonDocument<512> config;
+  
+  // Name can include hostname for better readability, but unique_id must always be unique
+  if (configManager && strlen(configManager->getHostname()) > 0) {
+    config["name"] = String(configManager->getHostname()) + " " + sensorName;
+  } else {
+    config["name"] = sensorName;
+  }
+  
+  // unique_id must always be unique - use full identifier regardless of hostname
+  config["unique_id"] = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
+  config["state_topic"] = baseTopic + "/state";
+  config["availability_topic"] = statusTopic;
+  
+  // Binary sensors use payload_on and payload_off
+  config["payload_on"] = "1";
+  config["payload_off"] = "0";
+  
+  // Use value_template to extract from JSON state
+  if (valueTemplate.length() > 0) {
+    config["value_template"] = valueTemplate;
+  } else {
+    // Default: extract from JSON state
+    config["value_template"] = "{{ value_json." + sensorName + " }}";
+  }
+  
+  if (deviceClass.length() > 0) {
+    config["device_class"] = deviceClass;
+  }
+  if (icon.length() > 0) {
+    config["icon"] = icon;
+  }
+  
+  // Device info - reuse createDeviceInfo() to avoid duplication
+  StaticJsonDocument<256> deviceDoc;
+  String deviceInfoStr = createDeviceInfo();
+  DeserializationError error = deserializeJson(deviceDoc, deviceInfoStr);
+  if (!error) {
+    config["device"] = deviceDoc;
+  } else {
+    // Fallback: create device info inline if deserialization fails
+    StaticJsonDocument<256> device;
+    device["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
+    device["name"] = (configManager && strlen(configManager->getHostname()) > 0)
+      ? String(configManager->getHostname())
+      : "Air Quality Monitor";
+    device["manufacturer"] = "Abrechen2";
+    device["model"] = "Air Quality Monitor v1.5";
+    device["sw_version"] = "1.5.1";
+    config["device"] = device;
+  }
+  
+  String topic = binarySensorDiscoveryPrefix + "/" + sensorName + "/config";
+  String payload;
+  serializeJson(config, payload);
+  
+  bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true); // retain = true
+  if (published) {
+    DEBUG_INFO("Published binary sensor discovery for %s", sensorName.c_str());
+  } else {
+    DEBUG_WARN("Failed to publish binary sensor discovery for %s", sensorName.c_str());
   }
 }
 
@@ -259,13 +335,13 @@ void MQTTManager::publishDiscoveryConfig() {
   publishSensorDiscovery("bme68x_runin_complete", "", "", "mdi:check-circle");
   
   // Alert binary sensors
-  publishSensorDiscovery("alert_aqi", "", "", "mdi:alert");
-  publishSensorDiscovery("alert_co2", "", "", "mdi:alert");
-  publishSensorDiscovery("alert_pm25", "", "", "mdi:alert");
-  publishSensorDiscovery("alert_tvoc", "", "", "mdi:alert");
-  publishSensorDiscovery("alert_humidity_low", "", "", "mdi:alert");
-  publishSensorDiscovery("alert_humidity_high", "", "", "mdi:alert");
-  publishSensorDiscovery("ventilation_needed", "", "", "mdi:fan");
+  publishBinarySensorDiscovery("alert_aqi", "problem", "mdi:alert");
+  publishBinarySensorDiscovery("alert_co2", "problem", "mdi:alert");
+  publishBinarySensorDiscovery("alert_pm25", "problem", "mdi:alert");
+  publishBinarySensorDiscovery("alert_tvoc", "problem", "mdi:alert");
+  publishBinarySensorDiscovery("alert_humidity_low", "problem", "mdi:alert");
+  publishBinarySensorDiscovery("alert_humidity_high", "problem", "mdi:alert");
+  publishBinarySensorDiscovery("ventilation_needed", "", "mdi:fan");
   
   // Additional sensor values
   publishSensorDiscovery("tvoc_ppb", "", "ppb", "mdi:air-filter");
@@ -277,8 +353,18 @@ void MQTTManager::publishDiscoveryConfig() {
 }
 
 void MQTTManager::publishAvailability() {
-  String topic = baseTopic + "/status";
-  mqttClient.publish(topic.c_str(), "online", true); // retain = true
+  if (mqttClient.connected()) {
+    mqttClient.publish(statusTopic.c_str(), "online", true); // retain = true
+    lastStatusUpdate = millis();
+    DEBUG_INFO("Published availability: online");
+  }
+}
+
+void MQTTManager::publishOffline() {
+  if (mqttClient.connected()) {
+    mqttClient.publish(statusTopic.c_str(), "offline", true); // retain = true
+    DEBUG_INFO("Published availability: offline");
+  }
 }
 
 bool MQTTManager::init() {
@@ -308,18 +394,27 @@ bool MQTTManager::connect() {
   String clientId = "AirQualityMonitor_" + deviceUniqueId;
   bool connected = false;
   
+  // Set Last Will and Testament (LWT) - sends "offline" if connection is lost unexpectedly
+  // Will topic: same as status topic, will message: "offline", will retain: true, will QoS: 1
+  String willTopic = statusTopic;
+  const char* willMessage = "offline";
+  uint8_t willQos = 1;
+  bool willRetain = true;
+  
   #ifdef MQTT_USERNAME
     #ifdef MQTT_PASSWORD
-      connected = mqttClient.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD);
+      connected = mqttClient.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD, 
+                                     willTopic.c_str(), willQos, willRetain, willMessage);
     #else
-      connected = mqttClient.connect(clientId.c_str(), MQTT_USERNAME, "");
+      connected = mqttClient.connect(clientId.c_str(), MQTT_USERNAME, "", 
+                                     willTopic.c_str(), willQos, willRetain, willMessage);
     #endif
   #else
-    connected = mqttClient.connect(clientId.c_str());
+    connected = mqttClient.connect(clientId.c_str(), willTopic.c_str(), willQos, willRetain, willMessage);
   #endif
   
   if (connected) {
-    DEBUG_INFO("MQTT connected successfully");
+    DEBUG_INFO("MQTT connected successfully with LWT");
     publishAvailability();
     
     // Publish discovery config after connection
@@ -343,6 +438,13 @@ void MQTTManager::reconnect() {
   
   lastReconnectAttempt = now;
   
+  // Publish offline before reconnecting (if we were connected before)
+  // Note: This might not always work if connection is already lost, but LWT will handle it
+  if (mqttClient.state() != MQTT_CONNECTED && lastStatusUpdate > 0) {
+    // Try to publish offline, but don't wait if it fails
+    publishOffline();
+  }
+  
   if (connect()) {
     lastReconnectAttempt = 0;
   }
@@ -353,6 +455,12 @@ void MQTTManager::update() {
     reconnect();
   } else {
     mqttClient.loop();
+    
+    // Send keep-alive status update every 60 seconds
+    unsigned long now = millis();
+    if (now - lastStatusUpdate >= 60000) { // 60 seconds
+      publishAvailability();
+    }
   }
 }
 
