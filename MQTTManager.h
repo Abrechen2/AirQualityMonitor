@@ -29,6 +29,7 @@ private:
   unsigned long lastPublishTime = 0;
   unsigned long lastReconnectAttempt = 0;
   unsigned long lastStatusUpdate = 0;
+  unsigned long lastDiscoveryPublish = 0;
   bool discoveryPublished = false;
   String deviceUniqueId;
   String baseTopic;
@@ -39,10 +40,10 @@ private:
   // Helper functions
   String getMacAddress() const;
   void publishDiscoveryConfig();
-  void publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
+  bool publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
                               const String& unit, const String& icon, 
                               const String& valueTemplate = "");
-  void publishBinarySensorDiscovery(const String& sensorName, const String& deviceClass, 
+  bool publishBinarySensorDiscovery(const String& sensorName, const String& deviceClass, 
                                     const String& icon, const String& valueTemplate = "");
   void publishAvailability();
   void publishOffline();
@@ -139,9 +140,15 @@ String MQTTManager::createDeviceInfo() const {
   return deviceInfo;
 }
 
-void MQTTManager::publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
+bool MQTTManager::publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
                                          const String& unit, const String& icon,
                                          const String& valueTemplate) {
+  // Check if MQTT client is connected
+  if (!mqttClient.connected()) {
+    DEBUG_WARN("Cannot publish discovery for %s - MQTT not connected", sensorName.c_str());
+    return false;
+  }
+  
   StaticJsonDocument<512> config;
   
   // Name can include hostname for better readability, but unique_id must always be unique
@@ -203,10 +210,17 @@ void MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
   } else {
     DEBUG_WARN("Failed to publish discovery for %s", sensorName.c_str());
   }
+  return published;
 }
 
-void MQTTManager::publishBinarySensorDiscovery(const String& sensorName, const String& deviceClass, 
+bool MQTTManager::publishBinarySensorDiscovery(const String& sensorName, const String& deviceClass, 
                                                const String& icon, const String& valueTemplate) {
+  // Check if MQTT client is connected
+  if (!mqttClient.connected()) {
+    DEBUG_WARN("Cannot publish binary sensor discovery for %s - MQTT not connected", sensorName.c_str());
+    return false;
+  }
+  
   StaticJsonDocument<512> config;
   
   // Name can include hostname for better readability, but unique_id must always be unique
@@ -269,87 +283,134 @@ void MQTTManager::publishBinarySensorDiscovery(const String& sensorName, const S
   } else {
     DEBUG_WARN("Failed to publish binary sensor discovery for %s", sensorName.c_str());
   }
+  return published;
 }
 
 void MQTTManager::publishDiscoveryConfig() {
-  if (discoveryPublished) {
+  // CRITICAL: Check if MQTT client is connected before attempting to publish
+  if (!mqttClient.connected()) {
+    DEBUG_WARN("Cannot publish discovery config - MQTT client not connected");
     return;
   }
   
-  DEBUG_INFO("Publishing Home Assistant discovery configuration...");
+  unsigned long now = millis();
+  
+  // Check if we need to republish (periodic republish or first time)
+  bool needsRepublish = false;
+  if (!discoveryPublished) {
+    needsRepublish = true;
+    DEBUG_INFO("Discovery not yet published - will publish now");
+  } else if (lastDiscoveryPublish > 0 && (now - lastDiscoveryPublish) >= DISCOVERY_REPUBLISH_INTERVAL) {
+    needsRepublish = true;
+    DEBUG_INFO("Periodic discovery republish triggered (60 minutes elapsed)");
+  }
+  
+  if (!needsRepublish) {
+    DEBUG_INFO("Discovery republish not needed (discoveryPublished=%d, lastDiscoveryPublish=%lu, elapsed=%lu)", 
+               discoveryPublished, lastDiscoveryPublish, lastDiscoveryPublish > 0 ? (now - lastDiscoveryPublish) : 0);
+    return;
+  }
+  
+  DEBUG_INFO("Publishing Home Assistant discovery configuration... (MQTT connected: %d)", mqttClient.connected());
+  
+  // Ensure MQTT loop is processed before publishing
+  mqttClient.loop();
+  
+  bool allOk = true;
+  int successCount = 0;
+  int failCount = 0;
   
   // Environmental sensors
   if (true) { // Always publish, Home Assistant will handle availability
-    publishSensorDiscovery("temperature", "temperature", "°C", "mdi:thermometer");
-    publishSensorDiscovery("humidity", "humidity", "%", "mdi:water-percent");
-    publishSensorDiscovery("pressure", "pressure", "hPa", "mdi:gauge");
-    publishSensorDiscovery("external_temperature", "temperature", "°C", "mdi:thermometer");
+    if (publishSensorDiscovery("temperature", "temperature", "°C", "mdi:thermometer")) successCount++; else failCount++;
+    if (publishSensorDiscovery("humidity", "humidity", "%", "mdi:water-percent")) successCount++; else failCount++;
+    if (publishSensorDiscovery("pressure", "pressure", "hPa", "mdi:gauge")) successCount++; else failCount++;
+    if (publishSensorDiscovery("external_temperature", "temperature", "°C", "mdi:thermometer")) successCount++; else failCount++;
+    mqttClient.loop(); // Process MQTT messages
   }
   
   // Air quality sensors
-  publishSensorDiscovery("iaq", "", "", "mdi:air-filter");
-  publishSensorDiscovery("iaq_accuracy", "", "", "mdi:check-circle");
-  publishSensorDiscovery("static_iaq", "", "", "mdi:air-filter");
-  publishSensorDiscovery("static_iaq_accuracy", "", "", "mdi:check-circle");
-  publishSensorDiscovery("co2", "carbon_dioxide", "ppm", "mdi:molecule-co2");
-  publishSensorDiscovery("co2_accuracy", "", "", "mdi:check-circle");
-  publishSensorDiscovery("voc", "volatile_organic_compounds", "mg/m³", "mdi:air-filter");
-  publishSensorDiscovery("voc_accuracy", "", "", "mdi:check-circle");
-  publishSensorDiscovery("gas_resistance", "", "Ω", "mdi:gauge");
+  if (publishSensorDiscovery("iaq", "", "", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("iaq_accuracy", "", "", "mdi:check-circle")) successCount++; else failCount++;
+  if (publishSensorDiscovery("static_iaq", "", "", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("static_iaq_accuracy", "", "", "mdi:check-circle")) successCount++; else failCount++;
+  if (publishSensorDiscovery("co2", "carbon_dioxide", "ppm", "mdi:molecule-co2")) successCount++; else failCount++;
+  if (publishSensorDiscovery("co2_accuracy", "", "", "mdi:check-circle")) successCount++; else failCount++;
+  if (publishSensorDiscovery("voc", "volatile_organic_compounds", "mg/m³", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("voc_accuracy", "", "", "mdi:check-circle")) successCount++; else failCount++;
+  if (publishSensorDiscovery("gas_resistance", "", "Ω", "mdi:gauge")) successCount++; else failCount++;
+  mqttClient.loop(); // Process MQTT messages
   
   // Particulate matter sensors
-  publishSensorDiscovery("pm1_0", "pm1", "µg/m³", "mdi:air-filter");
-  publishSensorDiscovery("pm2_5", "pm25", "µg/m³", "mdi:air-filter");
-  publishSensorDiscovery("pm10", "pm10", "µg/m³", "mdi:air-filter");
+  if (publishSensorDiscovery("pm1_0", "pm1", "µg/m³", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("pm2_5", "pm25", "µg/m³", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("pm10", "pm10", "µg/m³", "mdi:air-filter")) successCount++; else failCount++;
   
   // Calculated comfort values
-  publishSensorDiscovery("dew_point", "temperature", "°C", "mdi:thermometer-water");
-  publishSensorDiscovery("heat_index", "temperature", "°C", "mdi:thermometer");
-  publishSensorDiscovery("absolute_humidity", "", "g/m³", "mdi:water");
-  publishSensorDiscovery("comfort_index", "", "", "mdi:sofa");
+  if (publishSensorDiscovery("dew_point", "temperature", "°C", "mdi:thermometer-water")) successCount++; else failCount++;
+  if (publishSensorDiscovery("heat_index", "temperature", "°C", "mdi:thermometer")) successCount++; else failCount++;
+  if (publishSensorDiscovery("absolute_humidity", "", "g/m³", "mdi:water")) successCount++; else failCount++;
+  if (publishSensorDiscovery("comfort_index", "", "", "mdi:sofa")) successCount++; else failCount++;
   
   // AQI values
-  publishSensorDiscovery("aqi_index", "", "", "mdi:air-filter");
-  publishSensorDiscovery("aqi_category", "", "", "mdi:information");
-  publishSensorDiscovery("pm2_5_aqi", "", "", "mdi:air-filter");
-  publishSensorDiscovery("pm10_aqi", "", "", "mdi:air-filter");
-  publishSensorDiscovery("iaq_aqi", "", "", "mdi:air-filter");
-  publishSensorDiscovery("bsec_calibrated", "", "", "mdi:check-circle");
+  if (publishSensorDiscovery("aqi_index", "", "", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("aqi_category", "", "", "mdi:information")) successCount++; else failCount++;
+  if (publishSensorDiscovery("pm2_5_aqi", "", "", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("pm10_aqi", "", "", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("iaq_aqi", "", "", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("bsec_calibrated", "", "", "mdi:check-circle")) successCount++; else failCount++;
+  mqttClient.loop(); // Process MQTT messages
   
   // System sensors
-  publishSensorDiscovery("wifi_rssi", "signal_strength", "dBm", "mdi:wifi");
-  publishSensorDiscovery("wifi_connected", "", "", "mdi:wifi");
-  publishSensorDiscovery("mqtt_connected", "", "", "mdi:server-network");
-  publishSensorDiscovery("uptime", "", "s", "mdi:timer");
-  publishSensorDiscovery("free_heap", "", "bytes", "mdi:memory");
-  publishSensorDiscovery("ip_address", "", "", "mdi:ip-network");
-  publishSensorDiscovery("stealth_mode", "", "", "mdi:eye-off");
-  publishSensorDiscovery("display_enabled", "", "", "mdi:monitor");
-  publishSensorDiscovery("current_view", "", "", "mdi:view-dashboard");
-  publishSensorDiscovery("sensors_available_count", "", "", "mdi:counter");
-  publishSensorDiscovery("sensor_bme68x_available", "", "", "mdi:chip");
-  publishSensorDiscovery("sensor_ds18b20_available", "", "", "mdi:chip");
-  publishSensorDiscovery("sensor_pms5003_available", "", "", "mdi:chip");
-  publishSensorDiscovery("sensor_reliable", "", "", "mdi:check-circle");
-  publishSensorDiscovery("bme68x_stable", "", "", "mdi:check-circle");
-  publishSensorDiscovery("bme68x_runin_complete", "", "", "mdi:check-circle");
+  if (publishSensorDiscovery("wifi_rssi", "signal_strength", "dBm", "mdi:wifi")) successCount++; else failCount++;
+  if (publishSensorDiscovery("wifi_connected", "", "", "mdi:wifi")) successCount++; else failCount++;
+  if (publishSensorDiscovery("mqtt_connected", "", "", "mdi:server-network")) successCount++; else failCount++;
+  if (publishSensorDiscovery("uptime", "", "s", "mdi:timer")) successCount++; else failCount++;
+  if (publishSensorDiscovery("free_heap", "", "bytes", "mdi:memory")) successCount++; else failCount++;
+  if (publishSensorDiscovery("ip_address", "", "", "mdi:ip-network")) successCount++; else failCount++;
+  if (publishSensorDiscovery("stealth_mode", "", "", "mdi:eye-off")) successCount++; else failCount++;
+  if (publishSensorDiscovery("display_enabled", "", "", "mdi:monitor")) successCount++; else failCount++;
+  if (publishSensorDiscovery("current_view", "", "", "mdi:view-dashboard")) successCount++; else failCount++;
+  if (publishSensorDiscovery("sensors_available_count", "", "", "mdi:counter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("sensor_bme68x_available", "", "", "mdi:chip")) successCount++; else failCount++;
+  if (publishSensorDiscovery("sensor_ds18b20_available", "", "", "mdi:chip")) successCount++; else failCount++;
+  if (publishSensorDiscovery("sensor_pms5003_available", "", "", "mdi:chip")) successCount++; else failCount++;
+  if (publishSensorDiscovery("sensor_reliable", "", "", "mdi:check-circle")) successCount++; else failCount++;
+  if (publishSensorDiscovery("bme68x_stable", "", "", "mdi:check-circle")) successCount++; else failCount++;
+  if (publishSensorDiscovery("bme68x_runin_complete", "", "", "mdi:check-circle")) successCount++; else failCount++;
+  mqttClient.loop(); // Process MQTT messages
   
   // Alert binary sensors
-  publishBinarySensorDiscovery("alert_aqi", "problem", "mdi:alert");
-  publishBinarySensorDiscovery("alert_co2", "problem", "mdi:alert");
-  publishBinarySensorDiscovery("alert_pm25", "problem", "mdi:alert");
-  publishBinarySensorDiscovery("alert_tvoc", "problem", "mdi:alert");
-  publishBinarySensorDiscovery("alert_humidity_low", "problem", "mdi:alert");
-  publishBinarySensorDiscovery("alert_humidity_high", "problem", "mdi:alert");
-  publishBinarySensorDiscovery("ventilation_needed", "", "mdi:fan");
+  if (publishBinarySensorDiscovery("alert_aqi", "problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("alert_co2", "problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("alert_pm25", "problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("alert_tvoc", "problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("alert_humidity_low", "problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("alert_humidity_high", "problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("ventilation_needed", "", "mdi:fan")) successCount++; else failCount++;
   
   // Additional sensor values
-  publishSensorDiscovery("tvoc_ppb", "", "ppb", "mdi:air-filter");
-  publishSensorDiscovery("tvoc_mgm3", "", "mg/m³", "mdi:air-filter");
-  publishSensorDiscovery("aqi_color_code", "", "", "mdi:palette");
+  if (publishSensorDiscovery("tvoc_ppb", "", "ppb", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("tvoc_mgm3", "", "mg/m³", "mdi:air-filter")) successCount++; else failCount++;
+  if (publishSensorDiscovery("aqi_color_code", "", "", "mdi:palette")) successCount++; else failCount++;
   
-  discoveryPublished = true;
-  DEBUG_INFO("Home Assistant discovery configuration published");
+  // Final loop to ensure all messages are sent
+  mqttClient.loop();
+  delay(100); // Small delay to allow messages to be sent
+  mqttClient.loop();
+  
+  allOk = (failCount == 0);
+  
+  if (allOk) {
+    discoveryPublished = true;
+    lastDiscoveryPublish = now;
+    DEBUG_INFO("Home Assistant discovery configuration published successfully: %d sensors published, 0 failed", successCount);
+  } else {
+    DEBUG_ERROR("Discovery publish failed: %d sensors published, %d failed - will retry on next connect", 
+                successCount, failCount);
+    DEBUG_ERROR("Discovery published flag will remain false to force retry");
+    // Keep discoveryPublished = false so it will retry on next connect
+  }
 }
 
 void MQTTManager::publishAvailability() {
@@ -417,10 +478,16 @@ bool MQTTManager::connect() {
     DEBUG_INFO("MQTT connected successfully with LWT");
     publishAvailability();
     
-    // Publish discovery config after connection
+    // Publish discovery config after connection - always try if not published
+    // Add a small delay to ensure connection is stable
+    delay(200); // Increased delay for stability
+    
+    // Force discovery republish if not already published
     if (!discoveryPublished) {
-      delay(100); // Small delay to ensure connection is stable
+      DEBUG_INFO("Triggering discovery publish after MQTT connection");
       publishDiscoveryConfig();
+    } else {
+      DEBUG_INFO("Discovery already published (discoveryPublished=true), skipping");
     }
     
     return true;
@@ -437,6 +504,9 @@ void MQTTManager::reconnect() {
   }
   
   lastReconnectAttempt = now;
+  
+  // Reset discovery flag before reconnecting to ensure republish
+  discoveryPublished = false;
   
   // Publish offline before reconnecting (if we were connected before)
   // Note: This might not always work if connection is already lost, but LWT will handle it
@@ -456,10 +526,18 @@ void MQTTManager::update() {
   } else {
     mqttClient.loop();
     
-    // Send keep-alive status update every 60 seconds
     unsigned long now = millis();
+    
+    // Send keep-alive status update every 60 seconds
     if (now - lastStatusUpdate >= 60000) { // 60 seconds
       publishAvailability();
+    }
+    
+    // Periodically republish discovery config (every 60 minutes)
+    if (discoveryPublished && lastDiscoveryPublish > 0 && 
+        (now - lastDiscoveryPublish) >= DISCOVERY_REPUBLISH_INTERVAL) {
+      DEBUG_INFO("Triggering periodic discovery republish");
+      publishDiscoveryConfig();
     }
   }
 }

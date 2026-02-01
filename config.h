@@ -28,7 +28,7 @@
 // ===== TIMING CONFIGURATION =====
 #define DATA_SEND_INTERVAL 10000      // 10 seconds
 #define SENSOR_READ_INTERVAL 3000     // 3 seconds (BSEC ULP mode compromise)
-#define WIFI_CONNECT_TIMEOUT 15000    // 15 seconds
+#define WIFI_CONNECT_TIMEOUT 8000     // 8 seconds
 #define STEALTH_TEMP_ON_MS 20000      // 20 seconds temporary activation
 #define LED_TRANSITION_STEPS 20       // Number of steps for smooth color transition
 #define LED_TRANSITION_INTERVAL_MS 50 // Time between transition steps (ms)
@@ -36,7 +36,8 @@
 // ===== MQTT CONFIGURATION =====
 #define MQTT_PUBLISH_INTERVAL 10000   // 10 seconds (synchronized with DATA_SEND_INTERVAL)
 #define MQTT_RECONNECT_INTERVAL 5000  // 5 seconds between reconnect attempts
-#define MQTT_MAX_PACKET_SIZE 1024     // Maximum MQTT packet size (bytes)
+#define MQTT_MAX_PACKET_SIZE 2048     // Maximum MQTT packet size (bytes)
+#define DISCOVERY_REPUBLISH_INTERVAL 3600000  // 60 minutes (ms) - republish discovery config periodically
 
 // ===== SENSOR CONFIGURATION =====
 #define DEFAULT_TEMP_CORRECTION -3.5

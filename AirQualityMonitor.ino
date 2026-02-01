@@ -181,14 +181,40 @@ void loop() {
     ArduinoOTA.handle();
   }
 
-  // Check WiFi connection
-  if (wifiConnected && !wifiManager.isConnected()) {
-    DEBUG_WARN("WiFi lost - attempting reconnection");
-    wifiConnected = wifiManager.connect();
-    if (wifiConnected) {
-      // Reinitialize OTA after WiFi reconnection
-      initOTA();
+  // Check WiFi connection - always try to reconnect if not connected
+  if (!wifiManager.isConnected()) {
+    static unsigned long lastWifiReconnect = 0;
+    unsigned long now = millis();
+    
+    // Try to reconnect every 30 seconds
+    if (now - lastWifiReconnect >= 30000) {
+      lastWifiReconnect = now;
+      DEBUG_WARN("WiFi not connected - attempting reconnection");
+      bool newConnection = wifiManager.connect();
+      
+      if (newConnection) {
+        wifiConnected = true;
+        DEBUG_INFO("WiFi reconnected successfully");
+        // Reinitialize MQTT and OTA after WiFi reconnection
+        mqttManager.init();
+        if (mqttManager.connect()) {
+          DEBUG_INFO("MQTT reconnected after WiFi reconnection");
+        }
+        initOTA();
+      } else {
+        wifiConnected = false;
+        DEBUG_WARN("WiFi reconnection failed - will retry in 30 seconds");
+      }
     }
+  } else if (!wifiConnected) {
+    // WiFi has reconnected automatically (via setAutoReconnect)
+    wifiConnected = true;
+    DEBUG_INFO("WiFi auto-reconnected - reinitializing MQTT and OTA");
+    mqttManager.init();
+    if (mqttManager.connect()) {
+      DEBUG_INFO("MQTT reconnected after WiFi auto-reconnection");
+    }
+    initOTA();
   }
   
   // Always update LED transitions (even when no sensor update)
