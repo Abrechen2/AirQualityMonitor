@@ -86,6 +86,8 @@ private:
   PMS5003State pmsState = PMS5003_SLEEPING;
   unsigned long pmsStateTime = 0;
   uint8_t pmsRetryCount = 0;
+  uint8_t pmsConsecutiveFailures = 0;
+  static const uint8_t PMS_MAX_CONSECUTIVE_FAILURES = 5;
 
 public:
   /**
@@ -244,12 +246,18 @@ bool SensorManager::update() {
     }
   }
 
-  // Save BSEC state every 6h
-  if (currentData.bme68xAvailable && (millis() - lastStateTime > BSEC_STATE_SAVE_INTERVAL)) {
-    if (saveBsecState()) {
-      lastStateTime = millis();
-    } else {
-      DEBUG_WARN("BSEC state save failed - will retry in next interval");
+  // Save BSEC state: immediately on first calibration (accuracy >= 2), then every 6h
+  if (currentData.bme68xAvailable && currentData.bsecCalibrated) {
+    bool firstSave = (lastStateTime == 0);
+    bool periodicSave = !firstSave && (millis() - lastStateTime > BSEC_STATE_SAVE_INTERVAL);
+    if (firstSave || periodicSave) {
+      if (saveBsecState()) {
+        lastStateTime = millis();
+        if (firstSave) DEBUG_INFO("BSEC state saved for first time (accuracy >= 2)");
+      } else {
+        DEBUG_WARN("BSEC state save failed - will retry in next interval");
+        if (firstSave) lastStateTime = 1; // prevent immediate retry loop; retry after 6h
+      }
     }
   }
 
@@ -398,10 +406,23 @@ bool SensorManager::initDS18B20() {
 
 bool SensorManager::initPMS5003() {
   DEBUG_INFO("Initializing PMS5003...");
-  
+
   try {
+    // Flush any active-mode packets the sensor sent before we could configure it.
+    // Without this, passiveMode() can be issued while the RX buffer is full and
+    // the sensor ignores the command, causing every subsequent requestRead() to
+    // time out silently.
+    unsigned long flushStart = millis();
+    while (Serial1.available() && (millis() - flushStart < 500)) {
+      Serial1.read();
+    }
+    if (millis() - flushStart >= 100) {
+      DEBUG_INFO("PMS5003 RX buffer flushed (%lu ms)", millis() - flushStart);
+    }
+
     pms5003.passiveMode();
-    pms5003.wakeUp(); 
+    delay(100);  // Let the mode-switch command reach the sensor
+    pms5003.wakeUp();
     delay(1000);
     
     currentData.pms5003Available = true;
@@ -520,7 +541,13 @@ bool SensorManager::readPMS5003() {
       }
       return false;
 
-    case PMS5003_READING:
+    case PMS5003_READING: {
+      // Log bytes in UART buffer once per read attempt (helps diagnose RX wiring)
+      static unsigned long lastRxLog = 0;
+      if (millis() - lastRxLog > 5000) {
+        lastRxLog = millis();
+        DEBUG_INFO("PMS5003 READING state - Serial1 bytes available: %d", Serial1.available());
+      }
       // Try to read data with timeout
       if (pms5003.readUntil(pmsData, PMS_READ_TIMEOUT_MS / 20)) {  // Non-blocking check
         // Validate PM values before storing
@@ -536,6 +563,7 @@ bool SensorManager::readPMS5003() {
           currentData.pm2_5 = 0;
           currentData.pm10 = 0;
         }
+        pmsConsecutiveFailures = 0;  // reset on success
         pms5003.sleep();
         pmsState = PMS5003_SLEEPING;
         return true;
@@ -545,8 +573,14 @@ bool SensorManager::readPMS5003() {
       if (millis() - pmsStateTime >= PMS_READ_TIMEOUT_MS) {
         pmsRetryCount++;
         if (pmsRetryCount >= PMS_RETRY_COUNT) {
-          // Failed after 2 attempts
-          DEBUG_WARN("PMS5003 read failed after %d attempts", pmsRetryCount);
+          pmsConsecutiveFailures++;
+          DEBUG_WARN("PMS5003 read failed after %d attempts (consecutive failures: %d/%d)",
+                     pmsRetryCount, pmsConsecutiveFailures, PMS_MAX_CONSECUTIVE_FAILURES);
+          if (pmsConsecutiveFailures >= PMS_MAX_CONSECUTIVE_FAILURES) {
+            DEBUG_ERROR("PMS5003 marked unavailable after %d consecutive failures - check wiring!",
+                        pmsConsecutiveFailures);
+            currentData.pms5003Available = false;
+          }
           pms5003.sleep();
           pmsState = PMS5003_SLEEPING;
           return false;
@@ -558,6 +592,7 @@ bool SensorManager::readPMS5003() {
         }
       }
       return false;
+    }  // end case PMS5003_READING
 
     case PMS5003_RETRY:
       // This state is not used anymore, merged into READING
@@ -624,15 +659,15 @@ bool SensorManager::loadBsecState() {
   uint32_t serializedStateLength = 0;
   EEPROM.get(BSEC_BASELINE_EEPROM_ADDR, serializedStateLength);
 
-  // Plausibility check
-  if (serializedStateLength == 0) {
+  // 0 = never written; 0xFFFFFFFF = erased flash (all 0xFF bytes) → both mean "no state"
+  if (serializedStateLength == 0 || serializedStateLength == 0xFFFFFFFF) {
     DEBUG_INFO("No BSEC state found in EEPROM - starting fresh calibration");
     return false;
   }
 
   if (serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE) {
-    DEBUG_ERROR("BSEC state length invalid: %d bytes (max: %d) (ErrorCode: %d)", 
-                serializedStateLength, BSEC_MAX_STATE_BLOB_SIZE, ERROR_INVALID_DATA);
+    DEBUG_WARN("BSEC state length out of range (%u bytes, max %d) - ignoring, starting fresh",
+               serializedStateLength, BSEC_MAX_STATE_BLOB_SIZE);
     return false;
   }
 
