@@ -629,35 +629,27 @@ void MQTTManager::publishData(const SensorData& data, float aqi, const String& a
     doc["tvoc_mgm3"] = data.breathVocEquivalent;
   }
   
-  if (data.ds18b20Available) {
-    doc["external_temperature"] = data.externalTemp;
-  }
-  
-  // Particulate matter
-  if (data.pms5003Available) {
-    doc["pm1_0"] = data.pm1_0;
-    doc["pm2_5"] = data.pm2_5;
-    doc["pm10"] = data.pm10;
-  }
-  
-  // Calculated comfort values
-  if (data.bme68xAvailable) {
-    doc["dew_point"] = dewPoint;
-    doc["heat_index"] = heatIndex;
-    doc["absolute_humidity"] = absoluteHumidity;
-    doc["comfort_index"] = comfortIndex;
-  }
-  
+  // Particulate matter — always publish so HA value_templates never get a missing-key warning.
+  // When PMS5003 is offline, sensor_pms5003_available=0 signals the unavailability.
+  doc["pm1_0"] = data.pms5003Available ? data.pm1_0 : 0;
+  doc["pm2_5"] = data.pms5003Available ? data.pm2_5 : 0;
+  doc["pm10"]  = data.pms5003Available ? data.pm10  : 0;
+
+  // Calculated comfort values — always publish (0 when BME68X offline)
+  doc["dew_point"]         = data.bme68xAvailable ? dewPoint        : 0.0f;
+  doc["heat_index"]        = data.bme68xAvailable ? heatIndex       : 0.0f;
+  doc["absolute_humidity"] = data.bme68xAvailable ? absoluteHumidity: 0.0f;
+  doc["comfort_index"]     = data.bme68xAvailable ? comfortIndex    : 0.0f;
+
+  // External temperature — always publish (0 when DS18B20 offline)
+  doc["external_temperature"] = data.ds18b20Available ? data.externalTemp : 0.0f;
+
   // AQI values
-  doc["aqi_index"] = aqi;
+  doc["aqi_index"]    = aqi;
   doc["aqi_category"] = aqiCategory;
-  if (data.pms5003Available) {
-    doc["pm2_5_aqi"] = pm25_aqi;
-    doc["pm10_aqi"] = pm10_aqi;
-  }
-  if (data.bme68xAvailable) {
-    doc["iaq_aqi"] = iaq_aqi;
-  }
+  doc["pm2_5_aqi"]    = data.pms5003Available ? pm25_aqi : 0;
+  doc["pm10_aqi"]     = data.pms5003Available ? pm10_aqi : 0;
+  doc["iaq_aqi"]      = data.bme68xAvailable  ? iaq_aqi  : 0;
   
   // System status - use short names matching discovery
   doc["sensor_reliable"] = ((data.bme68xAvailable && data.iaqAccuracy > 0) || 
