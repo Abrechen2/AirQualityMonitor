@@ -136,7 +136,7 @@ String MQTTManager::createDeviceInfo() const {
     : "Air Quality Monitor";
   device["manufacturer"] = "Abrechen2";
   device["model"] = "Air Quality Monitor v1.5";
-  device["sw_version"] = "1.5.1";
+  device["sw_version"] = "1.5.2";
   
   String deviceInfo;
   serializeJson(device, deviceInfo);
@@ -199,7 +199,7 @@ bool MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
       : "Air Quality Monitor";
     device["manufacturer"] = "Abrechen2";
     device["model"] = "Air Quality Monitor v1.5";
-    device["sw_version"] = "1.5.1";
+    device["sw_version"] = "1.5.2";
     config["device"] = device;
   }
   
@@ -274,7 +274,7 @@ bool MQTTManager::publishBinarySensorDiscovery(const String& sensorName, const S
       : "Air Quality Monitor";
     device["manufacturer"] = "Abrechen2";
     device["model"] = "Air Quality Monitor v1.5";
-    device["sw_version"] = "1.5.1";
+    device["sw_version"] = "1.5.2";
     config["device"] = device;
   }
   
