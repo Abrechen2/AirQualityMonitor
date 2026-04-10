@@ -1,7 +1,7 @@
-// ===== AIR QUALITY MONITOR V1.5.1 - INTERNAL CALCULATIONS =====
+// ===== AIR QUALITY MONITOR V1.5.4 - INTERNAL CALCULATIONS =====
 // Advanced version with BSEC LP Mode, Stealth Control, CO2/VOC, Internal Calculations
 // Author: Dennis Wittke
-// Version: 1.5.1 - Bugfixes and stability improvements
+// Version: 1.5.4 - Fix MQTT discovery MAC mismatch, BSEC state handling, PMS5003 failure tracking
 // Date: 2025
 
 #include <Arduino.h>
@@ -105,7 +105,7 @@ void setup() {
     String ip = wifiManager.getIPAddress();
     displayManager.showMessage("IP: " + ip, 2000);
     DEBUG_INFO("WiFi connected successfully");
-    
+
     // Initialize MQTT
     mqttManager.init();
     if (mqttManager.connect()) {
