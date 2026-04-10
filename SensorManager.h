@@ -127,6 +127,7 @@ public:
 
 private:
   bool scanI2CDevice(uint8_t address);
+  void scanI2CBus();  // Log all I2C addresses found (for diagnostics)
   bool initBME68X(uint8_t address);
   void configureBsecSensors();
   bool initDS18B20();
@@ -167,8 +168,11 @@ bool SensorManager::init() {
   }
 
   bool success = true;
-  
-  // Initialize BME68X
+
+  // Short delay so BME68X can power up (same I2C bus as display)
+  delay(150);
+
+  // Initialize BME68X (address 0x76 or 0x77 depending on SDO pin)
   uint8_t bmeAddress = 0;
   if (scanI2CDevice(BME68X_I2C_ADDR_HIGH)) {
     bmeAddress = BME68X_I2C_ADDR_HIGH;
@@ -179,7 +183,8 @@ bool SensorManager::init() {
   if (bmeAddress != 0) {
     success &= initBME68X(bmeAddress);
   } else {
-    DEBUG_ERROR("BME68X not found");
+    DEBUG_ERROR("BME68X not found at 0x%02X or 0x%02X", BME68X_I2C_ADDR_LOW, BME68X_I2C_ADDR_HIGH);
+    scanI2CBus();  // Show which I2C devices are present
     currentData.bme68xAvailable = false;
   }
   
@@ -258,6 +263,23 @@ bool SensorManager::update() {
 bool SensorManager::scanI2CDevice(uint8_t address) {
   Wire.beginTransmission(address);
   return (Wire.endTransmission() == 0);
+}
+
+void SensorManager::scanI2CBus() {
+  DEBUG_INFO("I2C bus scan (SDA=%d, SCL=%d):", DISPLAY_SDA, DISPLAY_SCL);
+  uint8_t count = 0;
+  for (uint8_t addr = 0x08; addr <= 0x77; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      DEBUG_INFO("  Device at 0x%02X", addr);
+      count++;
+    }
+  }
+  if (count == 0) {
+    DEBUG_WARN("  No I2C devices found - check wiring and power");
+  } else {
+    DEBUG_INFO("  Total: %u device(s) - BME680 expected at 0x76 or 0x77", count);
+  }
 }
 
 bool SensorManager::initBME68X(uint8_t address) {
