@@ -462,9 +462,11 @@ bool MQTTManager::init() {
   }
   
   DEBUG_INFO("Initializing MQTT Manager...");
-  DEBUG_INFO("Device ID: %s", deviceUniqueId.c_str());
+  // Re-read MAC here (after WiFi init) in case constructor ran before WiFi was ready
+  deviceUniqueId = getMacAddress();
+  DEBUG_INFO("Device ID (MAC): %s", deviceUniqueId.c_str());
   DEBUG_INFO("Base topic: %s", baseTopic.c_str());
-  
+
   mqttClient.setServer(configManager->getMqttBrokerHost(), configManager->getMqttBrokerPort());
   mqttClient.setBufferSize(MQTT_MAX_PACKET_SIZE);
   mqttClient.setKeepAlive(60);
@@ -479,7 +481,16 @@ bool MQTTManager::connect() {
   
   DEBUG_INFO("Connecting to MQTT broker %s:%d...", configManager->getMqttBrokerHost(), configManager->getMqttBrokerPort());
   
-  String clientId = "AirQualityMonitor_" + deviceUniqueId;
+  // Use hostname as client ID so multiple devices with identical MAC (e.g. cloned ESP32s)
+  // get unique IDs. Hostname is stored per-device in EEPROM via ConfigManager.
+  // Fall back to MAC-based ID if no hostname is configured.
+  String clientId;
+  if (configManager && strlen(configManager->getHostname()) > 0) {
+    clientId = "AirQualityMonitor_" + String(configManager->getHostname());
+  } else {
+    clientId = "AirQualityMonitor_" + deviceUniqueId;
+  }
+  DEBUG_INFO("MQTT client ID: %s", clientId.c_str());
   bool connected = false;
   
   // Set Last Will and Testament (LWT) - sends "offline" if connection is lost unexpectedly
