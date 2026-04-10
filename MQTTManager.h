@@ -361,9 +361,8 @@ void MQTTManager::publishDiscoveryConfig() {
 
   // Additional sensor values
   DISCOVERY_CHECK_CONNECTED();
-  if (publishSensorDiscovery("tvoc_ppb",      "","ppb",   "mdi:air-filter", "measurement")) successCount++; else failCount++;
-  if (publishSensorDiscovery("tvoc_mgm3",     "","mg/m³", "mdi:air-filter", "measurement")) successCount++; else failCount++;
-  if (publishSensorDiscovery("aqi_color_code","","",      "mdi:palette",    ""))             successCount++; else failCount++;
+  if (publishSensorDiscovery("tvoc_ppb",  "","ppb",   "mdi:air-filter", "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("tvoc_mgm3", "","mg/m³", "mdi:air-filter", "measurement")) successCount++; else failCount++;
   
 discovery_end:
   #undef DISCOVERY_CHECK_CONNECTED
@@ -685,12 +684,6 @@ void MQTTManager::publishData(const SensorData& data, float aqi, const String& a
   doc["alert_humidity_low"] = (data.bme68xAvailable && alerts.alert_humidity_low) ? 1 : 0;
   doc["alert_humidity_high"] = (data.bme68xAvailable && alerts.alert_humidity_high) ? 1 : 0;
   doc["ventilation_needed"] = (data.bme68xAvailable && alerts.ventilation_needed) ? 1 : 0;
-  
-  // AQI color code
-  uint32_t aqiColor = calculateAQIColor(aqi);
-  char colorStr[8];
-  snprintf(colorStr, sizeof(colorStr), "#%06X", aqiColor);
-  doc["aqi_color_code"] = colorStr;
   
   // Publish as single JSON message to main state topic
   String payload;
