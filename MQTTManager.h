@@ -31,8 +31,7 @@ private:
   unsigned long lastStatusUpdate = 0;
   unsigned long lastDiscoveryPublish = 0;
   unsigned long lastConnectTime = 0;            // When connect() succeeded (for discovery delay)
-  unsigned long nextDiscoveryRetryAt = 0;      // Retry discovery at this time (backoff after abort)
-  bool hasEverConnected = false;                // True after first successful connect (avoid discovery loop on reconnect)
+  unsigned long nextDiscoveryRetryAt = 0;       // Retry discovery at this time (backoff after abort)
   bool discoveryPublished = false;
   bool discoveryRequestedAfterConnect = false;  // Defer discovery to update() for stable connection
   String deviceUniqueId;
@@ -505,13 +504,19 @@ bool MQTTManager::connect() {
   if (connected) {
     DEBUG_INFO("MQTT connected successfully with LWT");
     lastConnectTime = millis();
-    publishAvailability();
-    // Only request discovery on first connect (not on reconnect) to avoid 2s online/offline loop
-    if (!discoveryPublished && !hasEverConnected) {
-      discoveryRequestedAfterConnect = true;
-      DEBUG_INFO("Discovery will run after 2s stabilization");
+    // Process any immediate broker message (e.g. DISCONNECT sent before our first loop())
+    mqttClient.loop();
+    if (!mqttClient.connected()) {
+      DEBUG_WARN("Broker closed connection immediately after CONNACK! State: %d", mqttClient.state());
+      return false;
     }
-    hasEverConnected = true;
+    publishAvailability();
+    // Schedule discovery whenever we (re)connect and it has not yet succeeded.
+    // Guard with !discoveryRequestedAfterConnect to avoid duplicate scheduling.
+    if (!discoveryPublished && !discoveryRequestedAfterConnect) {
+      discoveryRequestedAfterConnect = true;
+      DEBUG_INFO("Discovery scheduled after 2s stabilization");
+    }
     return true;
   } else {
     DEBUG_ERROR("MQTT connection failed, state: %d", mqttClient.state());
@@ -536,13 +541,21 @@ void MQTTManager::reconnect() {
     publishOffline();
   }
   
-  if (connect()) {
-    lastReconnectAttempt = 0;
-  }
+  connect();
+  // Do NOT reset lastReconnectAttempt to 0 — that would bypass the 5-second throttle
+  // on the very next disconnect, causing the rapid-reconnect loop seen in the serial log.
 }
 
 void MQTTManager::update() {
   if (!mqttClient.connected()) {
+    int state = mqttClient.state();
+    if (lastConnectTime > 0) {
+      unsigned long aliveMs = millis() - lastConnectTime;
+      DEBUG_WARN("MQTT disconnected after %lums! PubSubClient state: %d", aliveMs, state);
+      // State codes: -4=TIMEOUT -3=CONN_LOST -2=CONN_FAILED -1=DISCONNECTED
+      //              1=BAD_PROTOCOL 2=BAD_CLIENT_ID 3=UNAVAILABLE 4=BAD_CREDENTIALS 5=UNAUTHORIZED
+      lastConnectTime = 0; // Prevent repeated logging until next successful connect
+    }
     reconnect();
   } else {
     mqttClient.loop();
