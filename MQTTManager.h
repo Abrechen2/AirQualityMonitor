@@ -209,7 +209,7 @@ bool MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
   
   bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true); // retain = true
   mqttClient.loop();
-  delay(100);  // Allow broker to process; 100 ms for brokers that drop under rapid publish (e.g. port 403)
+  delay(10);  // Minimal yield; 100ms was too long — discovery took 3s+, longer than broker keeps connection
   if (published) {
     DEBUG_INFO("Published discovery for %s", sensorName.c_str());
   } else {
@@ -284,7 +284,7 @@ bool MQTTManager::publishBinarySensorDiscovery(const String& sensorName, const S
   
   bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true); // retain = true
   mqttClient.loop();
-  delay(100);  // Allow broker to process; 100 ms for brokers that drop under rapid publish
+  delay(10);  // Minimal yield — see sensor discovery comment above
   if (published) {
     DEBUG_INFO("Published binary sensor discovery for %s", sensorName.c_str());
   } else {
@@ -511,11 +511,16 @@ bool MQTTManager::connect() {
       return false;
     }
     publishAvailability();
+    // Subscribe to command topic so the broker has a reason to keep the connection alive
+    // and we can later receive remote commands (e.g. display control).
+    String cmdTopic = baseTopic + "/cmd/#";
+    mqttClient.subscribe(cmdTopic.c_str());
+    DEBUG_INFO("Subscribed to %s", cmdTopic.c_str());
     // Schedule discovery whenever we (re)connect and it has not yet succeeded.
     // Guard with !discoveryRequestedAfterConnect to avoid duplicate scheduling.
     if (!discoveryPublished && !discoveryRequestedAfterConnect) {
       discoveryRequestedAfterConnect = true;
-      DEBUG_INFO("Discovery scheduled after 2s stabilization");
+      DEBUG_INFO("Discovery scheduled after 500ms stabilization");
     }
     return true;
   } else {
@@ -562,12 +567,14 @@ void MQTTManager::update() {
     
     unsigned long now = millis();
     
-    // Run deferred discovery from connect() after stabilization delay (2s)
+    // Run deferred discovery from connect() after stabilization delay (500ms).
+    // Reduced from 2000ms: the broker closes connections within 76-1354ms; waiting
+    // longer meant discovery never had a chance to run.
     if (discoveryRequestedAfterConnect && mqttClient.connected()) {
-      const unsigned long kDiscoveryStabilizationMs = 2000;
+      const unsigned long kDiscoveryStabilizationMs = 500;
       if (now - lastConnectTime >= kDiscoveryStabilizationMs) {
         discoveryRequestedAfterConnect = false;
-        DEBUG_INFO("Triggering discovery publish (after %lu s stabilization)", (unsigned long)(kDiscoveryStabilizationMs / 1000));
+        DEBUG_INFO("Triggering discovery publish (500ms stabilization elapsed)");
         publishDiscoveryConfig();
       }
     }
