@@ -140,7 +140,7 @@ void MQTTManager::addDeviceBlock(JsonObject& cfg) const {
     : "Air Quality Monitor";
   dev["manufacturer"] = "Abrechen2";
   dev["model"]        = "Air Quality Monitor v1.5";
-  dev["sw_version"]   = "1.5.3";
+  dev["sw_version"]   = "1.5.4";
 }
 
 bool MQTTManager::publishSensorDiscovery(const String& sensorName, const String& deviceClass,

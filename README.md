@@ -1,6 +1,6 @@
-# 🌪️ ESP32 Air Quality Monitor v1.5.1
+# 🌪️ ESP32 Air Quality Monitor v1.5.4
 
-![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen) ![Version](https://img.shields.io/badge/Version-1.5.1-blue)
+![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen) ![Version](https://img.shields.io/badge/Version-1.5.4-blue)
 
 Enclosure on Printables: <https://www.printables.com/model/1400485-esp32-air-quality-monitor-beluftetes-sensorgehause>
 
@@ -278,6 +278,8 @@ Contributions are welcome! Please:
 **Abrechen2**
 
 ### Version History
+- **v1.5.4** (2026) – MQTT discovery MAC mismatch fix, BSEC state improvements, PMS5003 failure tracking
+- **v1.5.3** (2026) – MQTT rapid-reconnect loop fix, unique client IDs, discovery stability
 - **v1.5.1** (2025) – Bugfixes and stability improvements
 - **v1.2.0** (2025) – MQTT Home Assistant integration, internal AQI calculation, removed Node-RED dependency
 - **v1.1.0** (2025) – Fixed BSEC CO₂/VOC zero values issue by switching from ULP to LP mode
@@ -288,6 +290,28 @@ Contributions are welcome! Please:
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ## 📋 Changelog
+
+### v1.5.4 (2026)
+**Bug Fixes:**
+- Fixed critical MQTT discovery MAC mismatch: `discoveryPrefix` was computed in the constructor before the WiFi driver was initialized, causing `WiFi.macAddress()` to return garbage bytes. Discovery topic and payload carried different MACs, so Home Assistant silently discarded all discovery messages. Fixed by recomputing `discoveryPrefix` and `binarySensorDiscoveryPrefix` in `init()` after WiFi is active.
+- Fixed BSEC state load on fresh flash: uninitialized EEPROM (all 0xFF) was misread as invalid length (-1 in signed format) and logged as an error. Now correctly detected as "no state saved" and handled silently.
+- Fixed BSEC state not persisting across power cycles: state was only saved after the 6-hour periodic interval. Now saved immediately when IAQ accuracy first reaches ≥ 2 (typically ~30 minutes after boot).
+- Fixed PMS5003 failures not surfacing to Home Assistant: consecutive read failures were logged but `pms5003Available` stayed `true`. Now set to `false` after 5 consecutive failures.
+
+**Diagnostics:**
+- Added `scanI2CBus()`: logs all I2C devices found when BME68X is not detected, to aid hardware troubleshooting.
+- Added 150 ms BME68X power-up delay (shares I2C bus with display).
+
+**MQTT Discovery Stability:**
+- `reconnect()` resets `discoveryPublished` to force republish after any broker reconnect, restoring retained messages lost on broker restart.
+- Mid-discovery connection check (`DISCOVERY_CHECK_CONNECTED`) aborts publish loop if broker drops, with 60 s backoff retry.
+- Per-entity `mqttClient.loop()` + 10 ms delay to reduce broker overload during bulk discovery publish.
+
+### v1.5.3 (2026)
+**Bug Fixes:**
+- Fixed MQTT rapid-reconnect loop caused by duplicate client IDs on multiple devices
+- Fixed PMS5003 UART buffer containing stale data after firmware flash
+- Unique MQTT client ID per device via hostname stored in EEPROM
 
 ### v1.5.1 (2025)
 **Bugfixes:**
