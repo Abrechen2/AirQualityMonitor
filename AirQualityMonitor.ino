@@ -1,7 +1,7 @@
-// ===== AIR QUALITY MONITOR V1.5.1 - INTERNAL CALCULATIONS =====
+// ===== AIR QUALITY MONITOR V1.5.4 - INTERNAL CALCULATIONS =====
 // Advanced version with BSEC LP Mode, Stealth Control, CO2/VOC, Internal Calculations
 // Author: Dennis Wittke
-// Version: 1.5.3 - Fix MQTT rapid-reconnect loop, duplicate client ID, PMS5003 init buffer flush
+// Version: 1.5.4 - Fix MQTT discovery MAC mismatch, BSEC state handling, PMS5003 failure tracking
 // Date: 2025
 
 #include <Arduino.h>
