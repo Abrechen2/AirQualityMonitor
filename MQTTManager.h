@@ -43,11 +43,14 @@ private:
   // Helper functions
   String getMacAddress() const;
   void publishDiscoveryConfig();
-  bool publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
-                              const String& unit, const String& icon, 
+  // stateClass: "measurement" for numeric sensors, "" for text/enum sensors
+  bool publishSensorDiscovery(const String& sensorName, const String& deviceClass,
+                              const String& unit, const String& icon,
+                              const String& stateClass = "",
                               const String& valueTemplate = "");
-  bool publishBinarySensorDiscovery(const String& sensorName, const String& deviceClass, 
+  bool publishBinarySensorDiscovery(const String& sensorName, const String& deviceClass,
                                     const String& icon, const String& valueTemplate = "");
+  void addDeviceBlock(JsonObject& config) const;
   void publishAvailability();
   void publishOffline();
   
@@ -94,7 +97,6 @@ public:
   
 private:
   void reconnect();
-  String createDeviceInfo() const;
 };
 
 // ===== IMPLEMENTATION =====
@@ -128,167 +130,115 @@ String MQTTManager::getMacAddress() const {
   return String(macStr);
 }
 
-String MQTTManager::createDeviceInfo() const {
-  StaticJsonDocument<256> device;
-  device["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
-  device["name"] = (configManager && strlen(configManager->getHostname()) > 0)
+
+// Build the device block directly into an existing JsonObject — avoids double serialize/deserialize.
+void MQTTManager::addDeviceBlock(JsonObject& cfg) const {
+  JsonObject dev = cfg.createNestedObject("device");
+  dev["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
+  dev["name"] = (configManager && strlen(configManager->getHostname()) > 0)
     ? String(configManager->getHostname())
     : "Air Quality Monitor";
-  device["manufacturer"] = "Abrechen2";
-  device["model"] = "Air Quality Monitor v1.5";
-  device["sw_version"] = "1.5.2";
-  
-  String deviceInfo;
-  serializeJson(device, deviceInfo);
-  return deviceInfo;
+  dev["manufacturer"] = "Abrechen2";
+  dev["model"]        = "Air Quality Monitor v1.5";
+  dev["sw_version"]   = "1.5.3";
 }
 
-bool MQTTManager::publishSensorDiscovery(const String& sensorName, const String& deviceClass, 
+bool MQTTManager::publishSensorDiscovery(const String& sensorName, const String& deviceClass,
                                          const String& unit, const String& icon,
+                                         const String& stateClass,
                                          const String& valueTemplate) {
-  // Check if MQTT client is connected
   if (!mqttClient.connected()) {
     DEBUG_WARN("Cannot publish discovery for %s - MQTT not connected", sensorName.c_str());
     return false;
   }
-  
-  StaticJsonDocument<512> config;
-  
-  // Name can include hostname for better readability, but unique_id must always be unique
-  if (configManager && strlen(configManager->getHostname()) > 0) {
-    config["name"] = String(configManager->getHostname()) + " " + sensorName;
-  } else {
-    config["name"] = sensorName;
-  }
-  
-  // unique_id must always be unique - use full identifier regardless of hostname
-  config["unique_id"] = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
-  config["state_topic"] = baseTopic + "/state";
-  config["availability_topic"] = statusTopic;
-  
-  // Use value_template to extract from JSON state
-  if (valueTemplate.length() > 0) {
-    config["value_template"] = valueTemplate;
-  } else {
-    // Default: extract from JSON state
-    config["value_template"] = "{{ value_json." + sensorName + " }}";
-  }
-  
-  if (deviceClass.length() > 0) {
-    config["device_class"] = deviceClass;
-  }
-  if (unit.length() > 0) {
-    config["unit_of_measurement"] = unit;
-  }
-  if (icon.length() > 0) {
-    config["icon"] = icon;
-  }
-  
-  // Device info - reuse createDeviceInfo() to avoid duplication
-  StaticJsonDocument<256> deviceDoc;
-  String deviceInfoStr = createDeviceInfo();
-  DeserializationError error = deserializeJson(deviceDoc, deviceInfoStr);
-  if (!error) {
-    config["device"] = deviceDoc;
-  } else {
-    // Fallback: create device info inline if deserialization fails
-    StaticJsonDocument<256> device;
-    device["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
-    device["name"] = (configManager && strlen(configManager->getHostname()) > 0)
-      ? String(configManager->getHostname())
-      : "Air Quality Monitor";
-    device["manufacturer"] = "Abrechen2";
-    device["model"] = "Air Quality Monitor v1.5";
-    device["sw_version"] = "1.5.2";
-    config["device"] = device;
-  }
-  
+
+  // 1024 bytes: 512 was too small — device block alone needs ~200 bytes in the ArduinoJson pool,
+  // leaving too little room for the other fields and causing silent truncation.
+  StaticJsonDocument<1024> config;
+
+  config["name"] = (configManager && strlen(configManager->getHostname()) > 0)
+    ? String(configManager->getHostname()) + " " + sensorName
+    : sensorName;
+  config["unique_id"]              = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
+  config["state_topic"]            = baseTopic + "/state";
+  config["availability_topic"]     = statusTopic;
+  config["payload_available"]      = "online";
+  config["payload_not_available"]  = "offline";
+  config["value_template"]         = (valueTemplate.length() > 0)
+    ? valueTemplate
+    : "{{ value_json." + sensorName + " }}";
+
+  if (deviceClass.length() > 0)  config["device_class"]        = deviceClass;
+  if (unit.length() > 0)         config["unit_of_measurement"]  = unit;
+  if (icon.length() > 0)         config["icon"]                 = icon;
+  if (stateClass.length() > 0)   config["state_class"]          = stateClass;
+
+  // Mark entity unavailable in HA after 3 missed publishes (3 × 10 s = 30 s)
+  config["expire_after"] = 30;
+
+  JsonObject cfgObj = config.as<JsonObject>();
+  addDeviceBlock(cfgObj);
+
   String topic = discoveryPrefix + "/" + sensorName + "/config";
   String payload;
   serializeJson(config, payload);
-  
-  bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true); // retain = true
+
+  bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true);
   mqttClient.loop();
-  delay(10);  // Minimal yield; 100ms was too long — discovery took 3s+, longer than broker keeps connection
+  delay(10);
   if (published) {
     DEBUG_INFO("Published discovery for %s", sensorName.c_str());
   } else {
-    DEBUG_WARN("Failed to publish discovery for %s", sensorName.c_str());
+    DEBUG_WARN("Failed to publish discovery for %s (payload %d bytes)", sensorName.c_str(), payload.length());
   }
   return published;
 }
 
-bool MQTTManager::publishBinarySensorDiscovery(const String& sensorName, const String& deviceClass, 
+bool MQTTManager::publishBinarySensorDiscovery(const String& sensorName, const String& deviceClass,
                                                const String& icon, const String& valueTemplate) {
-  // Check if MQTT client is connected
   if (!mqttClient.connected()) {
     DEBUG_WARN("Cannot publish binary sensor discovery for %s - MQTT not connected", sensorName.c_str());
     return false;
   }
-  
-  StaticJsonDocument<512> config;
-  
-  // Name can include hostname for better readability, but unique_id must always be unique
-  if (configManager && strlen(configManager->getHostname()) > 0) {
-    config["name"] = String(configManager->getHostname()) + " " + sensorName;
-  } else {
-    config["name"] = sensorName;
-  }
-  
-  // unique_id must always be unique - use full identifier regardless of hostname
-  config["unique_id"] = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
-  config["state_topic"] = baseTopic + "/state";
-  config["availability_topic"] = statusTopic;
-  
-  // Binary sensors use payload_on and payload_off
-  config["payload_on"] = "1";
-  config["payload_off"] = "0";
-  
-  // Use value_template to extract from JSON state
+
+  StaticJsonDocument<1024> config;
+
+  config["name"] = (configManager && strlen(configManager->getHostname()) > 0)
+    ? String(configManager->getHostname()) + " " + sensorName
+    : sensorName;
+  config["unique_id"]             = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
+  config["state_topic"]           = baseTopic + "/state";
+  config["availability_topic"]    = statusTopic;
+  config["payload_available"]     = "online";
+  config["payload_not_available"] = "offline";
+
+  // State-JSON publishes integers (1/0). Template converts to ON/OFF so HA never has to
+  // guess whether "1" (string) matches 1 (int) — a common source of binary sensor breakage.
   if (valueTemplate.length() > 0) {
     config["value_template"] = valueTemplate;
   } else {
-    // Default: extract from JSON state
-    config["value_template"] = "{{ value_json." + sensorName + " }}";
+    config["value_template"] = "{{ 'ON' if value_json." + sensorName + " else 'OFF' }}";
   }
-  
-  if (deviceClass.length() > 0) {
-    config["device_class"] = deviceClass;
-  }
-  if (icon.length() > 0) {
-    config["icon"] = icon;
-  }
-  
-  // Device info - reuse createDeviceInfo() to avoid duplication
-  StaticJsonDocument<256> deviceDoc;
-  String deviceInfoStr = createDeviceInfo();
-  DeserializationError error = deserializeJson(deviceDoc, deviceInfoStr);
-  if (!error) {
-    config["device"] = deviceDoc;
-  } else {
-    // Fallback: create device info inline if deserialization fails
-    StaticJsonDocument<256> device;
-    device["identifiers"][0] = "airqualitymonitor_" + deviceUniqueId;
-    device["name"] = (configManager && strlen(configManager->getHostname()) > 0)
-      ? String(configManager->getHostname())
-      : "Air Quality Monitor";
-    device["manufacturer"] = "Abrechen2";
-    device["model"] = "Air Quality Monitor v1.5";
-    device["sw_version"] = "1.5.2";
-    config["device"] = device;
-  }
-  
+
+  if (deviceClass.length() > 0) config["device_class"] = deviceClass;
+  if (icon.length() > 0)        config["icon"]         = icon;
+
+  config["expire_after"] = 30;
+
+  JsonObject cfgObj = config.as<JsonObject>();
+  addDeviceBlock(cfgObj);
+
   String topic = binarySensorDiscoveryPrefix + "/" + sensorName + "/config";
   String payload;
   serializeJson(config, payload);
-  
-  bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true); // retain = true
+
+  bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true);
   mqttClient.loop();
-  delay(10);  // Minimal yield — see sensor discovery comment above
+  delay(10);
   if (published) {
     DEBUG_INFO("Published binary sensor discovery for %s", sensorName.c_str());
   } else {
-    DEBUG_WARN("Failed to publish binary sensor discovery for %s", sensorName.c_str());
+    DEBUG_WARN("Failed to publish binary sensor discovery for %s (payload %d bytes)", sensorName.c_str(), payload.length());
   }
   return published;
 }
@@ -340,80 +290,80 @@ void MQTTManager::publishDiscoveryConfig() {
   // Environmental sensors
   if (true) { // Always publish, Home Assistant will handle availability
     DISCOVERY_CHECK_CONNECTED();
-    if (publishSensorDiscovery("temperature", "temperature", "°C", "mdi:thermometer")) successCount++; else failCount++;
-    if (publishSensorDiscovery("humidity", "humidity", "%", "mdi:water-percent")) successCount++; else failCount++;
-    if (publishSensorDiscovery("pressure", "pressure", "hPa", "mdi:gauge")) successCount++; else failCount++;
-    if (publishSensorDiscovery("external_temperature", "temperature", "°C", "mdi:thermometer")) successCount++; else failCount++;
+    if (publishSensorDiscovery("temperature",          "temperature", "°C",  "mdi:thermometer",       "measurement")) successCount++; else failCount++;
+    if (publishSensorDiscovery("humidity",             "humidity",    "%",   "mdi:water-percent",     "measurement")) successCount++; else failCount++;
+    if (publishSensorDiscovery("pressure",             "pressure",    "hPa", "mdi:gauge",             "measurement")) successCount++; else failCount++;
+    if (publishSensorDiscovery("external_temperature", "temperature", "°C",  "mdi:thermometer",       "measurement")) successCount++; else failCount++;
   }
   
   // Air quality sensors
   DISCOVERY_CHECK_CONNECTED();
-  if (publishSensorDiscovery("iaq", "", "", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("iaq_accuracy", "", "", "mdi:check-circle")) successCount++; else failCount++;
-  if (publishSensorDiscovery("static_iaq", "", "", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("static_iaq_accuracy", "", "", "mdi:check-circle")) successCount++; else failCount++;
-  if (publishSensorDiscovery("co2", "carbon_dioxide", "ppm", "mdi:molecule-co2")) successCount++; else failCount++;
-  if (publishSensorDiscovery("co2_accuracy", "", "", "mdi:check-circle")) successCount++; else failCount++;
-  if (publishSensorDiscovery("voc", "volatile_organic_compounds", "mg/m³", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("voc_accuracy", "", "", "mdi:check-circle")) successCount++; else failCount++;
-  if (publishSensorDiscovery("gas_resistance", "", "Ω", "mdi:gauge")) successCount++; else failCount++;
-  
+  if (publishSensorDiscovery("iaq",                "","",       "mdi:air-filter",    "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("iaq_accuracy",       "","",       "mdi:check-circle",  "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("static_iaq",         "","",       "mdi:air-filter",    "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("static_iaq_accuracy","","",       "mdi:check-circle",  "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("co2",  "carbon_dioxide",               "ppm",    "mdi:molecule-co2", "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("co2_accuracy",       "","",       "mdi:check-circle",  "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("voc",  "volatile_organic_compounds",   "mg/m³",  "mdi:air-filter",   "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("voc_accuracy",       "","",       "mdi:check-circle",  "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("gas_resistance",     "","Ω",      "mdi:gauge",         "measurement")) successCount++; else failCount++;
+
   // Particulate matter sensors
   DISCOVERY_CHECK_CONNECTED();
-  if (publishSensorDiscovery("pm1_0", "pm1", "µg/m³", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("pm2_5", "pm25", "µg/m³", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("pm10", "pm10", "µg/m³", "mdi:air-filter")) successCount++; else failCount++;
-  
+  if (publishSensorDiscovery("pm1_0", "pm1",  "µg/m³", "mdi:air-filter", "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("pm2_5", "pm25", "µg/m³", "mdi:air-filter", "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("pm10",  "pm10", "µg/m³", "mdi:air-filter", "measurement")) successCount++; else failCount++;
+
   // Calculated comfort values
   DISCOVERY_CHECK_CONNECTED();
-  if (publishSensorDiscovery("dew_point", "temperature", "°C", "mdi:thermometer-water")) successCount++; else failCount++;
-  if (publishSensorDiscovery("heat_index", "temperature", "°C", "mdi:thermometer")) successCount++; else failCount++;
-  if (publishSensorDiscovery("absolute_humidity", "", "g/m³", "mdi:water")) successCount++; else failCount++;
-  if (publishSensorDiscovery("comfort_index", "", "", "mdi:sofa")) successCount++; else failCount++;
-  
+  if (publishSensorDiscovery("dew_point",        "temperature","°C",   "mdi:thermometer-water", "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("heat_index",       "temperature","°C",   "mdi:thermometer",       "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("absolute_humidity","","g/m³",            "mdi:water",             "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("comfort_index",    "","",                "mdi:sofa",              "measurement")) successCount++; else failCount++;
+
   // AQI values
   DISCOVERY_CHECK_CONNECTED();
-  if (publishSensorDiscovery("aqi_index", "", "", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("aqi_category", "", "", "mdi:information")) successCount++; else failCount++;
-  if (publishSensorDiscovery("pm2_5_aqi", "", "", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("pm10_aqi", "", "", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("iaq_aqi", "", "", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("bsec_calibrated", "", "", "mdi:check-circle")) successCount++; else failCount++;
-  
+  if (publishSensorDiscovery("aqi_index",     "","",  "mdi:air-filter",  "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("aqi_category",  "","",  "mdi:information", ""))            successCount++; else failCount++;
+  if (publishSensorDiscovery("pm2_5_aqi",     "","",  "mdi:air-filter",  "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("pm10_aqi",      "","",  "mdi:air-filter",  "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("iaq_aqi",       "","",  "mdi:air-filter",  "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("bsec_calibrated","","",  "mdi:check-circle",""))           successCount++; else failCount++;
+
   // System sensors
   DISCOVERY_CHECK_CONNECTED();
-  if (publishSensorDiscovery("wifi_rssi", "signal_strength", "dBm", "mdi:wifi")) successCount++; else failCount++;
-  if (publishSensorDiscovery("wifi_connected", "", "", "mdi:wifi")) successCount++; else failCount++;
-  if (publishSensorDiscovery("mqtt_connected", "", "", "mdi:server-network")) successCount++; else failCount++;
-  if (publishSensorDiscovery("uptime", "", "s", "mdi:timer")) successCount++; else failCount++;
-  if (publishSensorDiscovery("free_heap", "", "bytes", "mdi:memory")) successCount++; else failCount++;
-  if (publishSensorDiscovery("ip_address", "", "", "mdi:ip-network")) successCount++; else failCount++;
-  if (publishSensorDiscovery("stealth_mode", "", "", "mdi:eye-off")) successCount++; else failCount++;
-  if (publishSensorDiscovery("display_enabled", "", "", "mdi:monitor")) successCount++; else failCount++;
-  if (publishSensorDiscovery("current_view", "", "", "mdi:view-dashboard")) successCount++; else failCount++;
-  if (publishSensorDiscovery("sensors_available_count", "", "", "mdi:counter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("sensor_bme68x_available", "", "", "mdi:chip")) successCount++; else failCount++;
-  if (publishSensorDiscovery("sensor_ds18b20_available", "", "", "mdi:chip")) successCount++; else failCount++;
-  if (publishSensorDiscovery("sensor_pms5003_available", "", "", "mdi:chip")) successCount++; else failCount++;
-  if (publishSensorDiscovery("sensor_reliable", "", "", "mdi:check-circle")) successCount++; else failCount++;
-  if (publishSensorDiscovery("bme68x_stable", "", "", "mdi:check-circle")) successCount++; else failCount++;
-  if (publishSensorDiscovery("bme68x_runin_complete", "", "", "mdi:check-circle")) successCount++; else failCount++;
-  
+  if (publishSensorDiscovery("wifi_rssi",              "signal_strength","dBm",   "mdi:wifi",          "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("wifi_connected",         "","",            "mdi:wifi",          ""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("mqtt_connected",         "","",            "mdi:server-network",""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("uptime",                 "","s",           "mdi:timer",         "total_increasing")) successCount++; else failCount++;
+  if (publishSensorDiscovery("free_heap",              "","bytes",       "mdi:memory",        "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("ip_address",             "","",            "mdi:ip-network",    ""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("stealth_mode",           "","",            "mdi:eye-off",       ""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("display_enabled",        "","",            "mdi:monitor",       ""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("current_view",           "","",            "mdi:view-dashboard",""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("sensors_available_count","","",            "mdi:counter",       "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("sensor_bme68x_available","","",            "mdi:chip",          ""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("sensor_ds18b20_available","","",           "mdi:chip",          ""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("sensor_pms5003_available","","",           "mdi:chip",          ""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("sensor_reliable",        "","",            "mdi:check-circle",  ""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("bme68x_stable",          "","",            "mdi:check-circle",  ""))     successCount++; else failCount++;
+  if (publishSensorDiscovery("bme68x_runin_complete",  "","",            "mdi:check-circle",  ""))     successCount++; else failCount++;
+
   // Alert binary sensors
   DISCOVERY_CHECK_CONNECTED();
-  if (publishBinarySensorDiscovery("alert_aqi", "problem", "mdi:alert")) successCount++; else failCount++;
-  if (publishBinarySensorDiscovery("alert_co2", "problem", "mdi:alert")) successCount++; else failCount++;
-  if (publishBinarySensorDiscovery("alert_pm25", "problem", "mdi:alert")) successCount++; else failCount++;
-  if (publishBinarySensorDiscovery("alert_tvoc", "problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("alert_aqi",          "problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("alert_co2",          "problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("alert_pm25",         "problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("alert_tvoc",         "problem", "mdi:alert")) successCount++; else failCount++;
   if (publishBinarySensorDiscovery("alert_humidity_low", "problem", "mdi:alert")) successCount++; else failCount++;
-  if (publishBinarySensorDiscovery("alert_humidity_high", "problem", "mdi:alert")) successCount++; else failCount++;
-  if (publishBinarySensorDiscovery("ventilation_needed", "", "mdi:fan")) successCount++; else failCount++;
-  
+  if (publishBinarySensorDiscovery("alert_humidity_high","problem", "mdi:alert")) successCount++; else failCount++;
+  if (publishBinarySensorDiscovery("ventilation_needed", "",        "mdi:fan"))   successCount++; else failCount++;
+
   // Additional sensor values
   DISCOVERY_CHECK_CONNECTED();
-  if (publishSensorDiscovery("tvoc_ppb", "", "ppb", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("tvoc_mgm3", "", "mg/m³", "mdi:air-filter")) successCount++; else failCount++;
-  if (publishSensorDiscovery("aqi_color_code", "", "", "mdi:palette")) successCount++; else failCount++;
+  if (publishSensorDiscovery("tvoc_ppb",      "","ppb",   "mdi:air-filter", "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("tvoc_mgm3",     "","mg/m³", "mdi:air-filter", "measurement")) successCount++; else failCount++;
+  if (publishSensorDiscovery("aqi_color_code","","",      "mdi:palette",    ""))             successCount++; else failCount++;
   
 discovery_end:
   #undef DISCOVERY_CHECK_CONNECTED
@@ -462,10 +412,15 @@ bool MQTTManager::init() {
   }
   
   DEBUG_INFO("Initializing MQTT Manager...");
-  // Re-read MAC here (after WiFi init) in case constructor ran before WiFi was ready
+  // Re-read MAC here (after WiFi init). The constructor may have run before the WiFi driver
+  // was started, causing WiFi.macAddress() to return garbage (e.g. uninitialized stack bytes).
+  // Must also recompute discoveryPrefix / binarySensorDiscoveryPrefix which embed the MAC.
   deviceUniqueId = getMacAddress();
+  discoveryPrefix = "homeassistant/sensor/airqualitymonitor_" + deviceUniqueId;
+  binarySensorDiscoveryPrefix = "homeassistant/binary_sensor/airqualitymonitor_" + deviceUniqueId;
   DEBUG_INFO("Device ID (MAC): %s", deviceUniqueId.c_str());
   DEBUG_INFO("Base topic: %s", baseTopic.c_str());
+  DEBUG_INFO("Discovery prefix: %s", discoveryPrefix.c_str());
 
   mqttClient.setServer(configManager->getMqttBrokerHost(), configManager->getMqttBrokerPort());
   mqttClient.setBufferSize(MQTT_MAX_PACKET_SIZE);
@@ -548,7 +503,11 @@ void MQTTManager::reconnect() {
   
   lastReconnectAttempt = now;
   
-  // Do not reset discoveryPublished here - avoids immediate discovery on reconnect and 2s online/offline loop
+  // Reset discoveryPublished so discovery is republished after every reconnect.
+  // This ensures retained messages are restored if the broker was restarted and lost them.
+  // The 2s online/offline loop was caused by duplicate client IDs (now fixed), not by this reset.
+  discoveryPublished = false;
+  discoveryRequestedAfterConnect = false;
   
   // Publish offline before reconnecting (if we were connected before)
   // Note: This might not always work if connection is already lost, but LWT will handle it
