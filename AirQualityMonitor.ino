@@ -105,7 +105,7 @@ void setup() {
     String ip = wifiManager.getIPAddress();
     displayManager.showMessage("IP: " + ip, 2000);
     DEBUG_INFO("WiFi connected successfully");
-    
+
     // Initialize MQTT
     mqttManager.init();
     if (mqttManager.connect()) {

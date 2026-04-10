@@ -30,7 +30,11 @@ private:
   unsigned long lastReconnectAttempt = 0;
   unsigned long lastStatusUpdate = 0;
   unsigned long lastDiscoveryPublish = 0;
+  unsigned long lastConnectTime = 0;            // When connect() succeeded (for discovery delay)
+  unsigned long nextDiscoveryRetryAt = 0;      // Retry discovery at this time (backoff after abort)
+  bool hasEverConnected = false;                // True after first successful connect (avoid discovery loop on reconnect)
   bool discoveryPublished = false;
+  bool discoveryRequestedAfterConnect = false;  // Defer discovery to update() for stable connection
   String deviceUniqueId;
   String baseTopic;
   String discoveryPrefix;
@@ -205,6 +209,8 @@ bool MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
   serializeJson(config, payload);
   
   bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true); // retain = true
+  mqttClient.loop();
+  delay(100);  // Allow broker to process; 100 ms for brokers that drop under rapid publish (e.g. port 403)
   if (published) {
     DEBUG_INFO("Published discovery for %s", sensorName.c_str());
   } else {
@@ -278,6 +284,8 @@ bool MQTTManager::publishBinarySensorDiscovery(const String& sensorName, const S
   serializeJson(config, payload);
   
   bool published = mqttClient.publish(topic.c_str(), payload.c_str(), true); // retain = true
+  mqttClient.loop();
+  delay(100);  // Allow broker to process; 100 ms for brokers that drop under rapid publish
   if (published) {
     DEBUG_INFO("Published binary sensor discovery for %s", sensorName.c_str());
   } else {
@@ -319,17 +327,28 @@ void MQTTManager::publishDiscoveryConfig() {
   bool allOk = true;
   int successCount = 0;
   int failCount = 0;
+  bool discoveryAborted = false;
+  
+  #define DISCOVERY_CHECK_CONNECTED() do { \
+    mqttClient.loop(); \
+    if (!mqttClient.connected()) { \
+      DEBUG_WARN("MQTT disconnected during discovery - stopping. Will retry on next connect."); \
+      discoveryAborted = true; \
+      goto discovery_end; \
+    } \
+  } while(0)
   
   // Environmental sensors
   if (true) { // Always publish, Home Assistant will handle availability
+    DISCOVERY_CHECK_CONNECTED();
     if (publishSensorDiscovery("temperature", "temperature", "°C", "mdi:thermometer")) successCount++; else failCount++;
     if (publishSensorDiscovery("humidity", "humidity", "%", "mdi:water-percent")) successCount++; else failCount++;
     if (publishSensorDiscovery("pressure", "pressure", "hPa", "mdi:gauge")) successCount++; else failCount++;
     if (publishSensorDiscovery("external_temperature", "temperature", "°C", "mdi:thermometer")) successCount++; else failCount++;
-    mqttClient.loop(); // Process MQTT messages
   }
   
   // Air quality sensors
+  DISCOVERY_CHECK_CONNECTED();
   if (publishSensorDiscovery("iaq", "", "", "mdi:air-filter")) successCount++; else failCount++;
   if (publishSensorDiscovery("iaq_accuracy", "", "", "mdi:check-circle")) successCount++; else failCount++;
   if (publishSensorDiscovery("static_iaq", "", "", "mdi:air-filter")) successCount++; else failCount++;
@@ -339,29 +358,31 @@ void MQTTManager::publishDiscoveryConfig() {
   if (publishSensorDiscovery("voc", "volatile_organic_compounds", "mg/m³", "mdi:air-filter")) successCount++; else failCount++;
   if (publishSensorDiscovery("voc_accuracy", "", "", "mdi:check-circle")) successCount++; else failCount++;
   if (publishSensorDiscovery("gas_resistance", "", "Ω", "mdi:gauge")) successCount++; else failCount++;
-  mqttClient.loop(); // Process MQTT messages
   
   // Particulate matter sensors
+  DISCOVERY_CHECK_CONNECTED();
   if (publishSensorDiscovery("pm1_0", "pm1", "µg/m³", "mdi:air-filter")) successCount++; else failCount++;
   if (publishSensorDiscovery("pm2_5", "pm25", "µg/m³", "mdi:air-filter")) successCount++; else failCount++;
   if (publishSensorDiscovery("pm10", "pm10", "µg/m³", "mdi:air-filter")) successCount++; else failCount++;
   
   // Calculated comfort values
+  DISCOVERY_CHECK_CONNECTED();
   if (publishSensorDiscovery("dew_point", "temperature", "°C", "mdi:thermometer-water")) successCount++; else failCount++;
   if (publishSensorDiscovery("heat_index", "temperature", "°C", "mdi:thermometer")) successCount++; else failCount++;
   if (publishSensorDiscovery("absolute_humidity", "", "g/m³", "mdi:water")) successCount++; else failCount++;
   if (publishSensorDiscovery("comfort_index", "", "", "mdi:sofa")) successCount++; else failCount++;
   
   // AQI values
+  DISCOVERY_CHECK_CONNECTED();
   if (publishSensorDiscovery("aqi_index", "", "", "mdi:air-filter")) successCount++; else failCount++;
   if (publishSensorDiscovery("aqi_category", "", "", "mdi:information")) successCount++; else failCount++;
   if (publishSensorDiscovery("pm2_5_aqi", "", "", "mdi:air-filter")) successCount++; else failCount++;
   if (publishSensorDiscovery("pm10_aqi", "", "", "mdi:air-filter")) successCount++; else failCount++;
   if (publishSensorDiscovery("iaq_aqi", "", "", "mdi:air-filter")) successCount++; else failCount++;
   if (publishSensorDiscovery("bsec_calibrated", "", "", "mdi:check-circle")) successCount++; else failCount++;
-  mqttClient.loop(); // Process MQTT messages
   
   // System sensors
+  DISCOVERY_CHECK_CONNECTED();
   if (publishSensorDiscovery("wifi_rssi", "signal_strength", "dBm", "mdi:wifi")) successCount++; else failCount++;
   if (publishSensorDiscovery("wifi_connected", "", "", "mdi:wifi")) successCount++; else failCount++;
   if (publishSensorDiscovery("mqtt_connected", "", "", "mdi:server-network")) successCount++; else failCount++;
@@ -378,9 +399,9 @@ void MQTTManager::publishDiscoveryConfig() {
   if (publishSensorDiscovery("sensor_reliable", "", "", "mdi:check-circle")) successCount++; else failCount++;
   if (publishSensorDiscovery("bme68x_stable", "", "", "mdi:check-circle")) successCount++; else failCount++;
   if (publishSensorDiscovery("bme68x_runin_complete", "", "", "mdi:check-circle")) successCount++; else failCount++;
-  mqttClient.loop(); // Process MQTT messages
   
   // Alert binary sensors
+  DISCOVERY_CHECK_CONNECTED();
   if (publishBinarySensorDiscovery("alert_aqi", "problem", "mdi:alert")) successCount++; else failCount++;
   if (publishBinarySensorDiscovery("alert_co2", "problem", "mdi:alert")) successCount++; else failCount++;
   if (publishBinarySensorDiscovery("alert_pm25", "problem", "mdi:alert")) successCount++; else failCount++;
@@ -390,16 +411,23 @@ void MQTTManager::publishDiscoveryConfig() {
   if (publishBinarySensorDiscovery("ventilation_needed", "", "mdi:fan")) successCount++; else failCount++;
   
   // Additional sensor values
+  DISCOVERY_CHECK_CONNECTED();
   if (publishSensorDiscovery("tvoc_ppb", "", "ppb", "mdi:air-filter")) successCount++; else failCount++;
   if (publishSensorDiscovery("tvoc_mgm3", "", "mg/m³", "mdi:air-filter")) successCount++; else failCount++;
   if (publishSensorDiscovery("aqi_color_code", "", "", "mdi:palette")) successCount++; else failCount++;
   
+discovery_end:
+  #undef DISCOVERY_CHECK_CONNECTED
+  // If discovery aborted due to disconnect, retry after 60 s (backoff to avoid 2s loop)
+  if (discoveryAborted) {
+    nextDiscoveryRetryAt = now + 60000;
+  }
   // Final loop to ensure all messages are sent
   mqttClient.loop();
   delay(100); // Small delay to allow messages to be sent
   mqttClient.loop();
   
-  allOk = (failCount == 0);
+  allOk = (failCount == 0 && !discoveryAborted);
   
   if (allOk) {
     discoveryPublished = true;
@@ -476,20 +504,14 @@ bool MQTTManager::connect() {
   
   if (connected) {
     DEBUG_INFO("MQTT connected successfully with LWT");
+    lastConnectTime = millis();
     publishAvailability();
-    
-    // Publish discovery config after connection - always try if not published
-    // Add a small delay to ensure connection is stable
-    delay(200); // Increased delay for stability
-    
-    // Force discovery republish if not already published
-    if (!discoveryPublished) {
-      DEBUG_INFO("Triggering discovery publish after MQTT connection");
-      publishDiscoveryConfig();
-    } else {
-      DEBUG_INFO("Discovery already published (discoveryPublished=true), skipping");
+    // Only request discovery on first connect (not on reconnect) to avoid 2s online/offline loop
+    if (!discoveryPublished && !hasEverConnected) {
+      discoveryRequestedAfterConnect = true;
+      DEBUG_INFO("Discovery will run after 2s stabilization");
     }
-    
+    hasEverConnected = true;
     return true;
   } else {
     DEBUG_ERROR("MQTT connection failed, state: %d", mqttClient.state());
@@ -505,8 +527,7 @@ void MQTTManager::reconnect() {
   
   lastReconnectAttempt = now;
   
-  // Reset discovery flag before reconnecting to ensure republish
-  discoveryPublished = false;
+  // Do not reset discoveryPublished here - avoids immediate discovery on reconnect and 2s online/offline loop
   
   // Publish offline before reconnecting (if we were connected before)
   // Note: This might not always work if connection is already lost, but LWT will handle it
@@ -527,6 +548,22 @@ void MQTTManager::update() {
     mqttClient.loop();
     
     unsigned long now = millis();
+    
+    // Run deferred discovery from connect() after stabilization delay (2s)
+    if (discoveryRequestedAfterConnect && mqttClient.connected()) {
+      const unsigned long kDiscoveryStabilizationMs = 2000;
+      if (now - lastConnectTime >= kDiscoveryStabilizationMs) {
+        discoveryRequestedAfterConnect = false;
+        DEBUG_INFO("Triggering discovery publish (after %lu s stabilization)", (unsigned long)(kDiscoveryStabilizationMs / 1000));
+        publishDiscoveryConfig();
+      }
+    }
+    // Retry discovery with 60 s backoff when previous run aborted due to disconnect
+    if (!discoveryPublished && nextDiscoveryRetryAt > 0 && now >= nextDiscoveryRetryAt && mqttClient.connected()) {
+      nextDiscoveryRetryAt = now + 60000;
+      DEBUG_INFO("Triggering discovery retry (backoff)");
+      publishDiscoveryConfig();
+    }
     
     // Send keep-alive status update every 60 seconds
     if (now - lastStatusUpdate >= 60000) { // 60 seconds
