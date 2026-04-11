@@ -149,7 +149,7 @@ ESP32 Board
 
 `FIRMWARE_VERSION` wird **ausschliesslich** in `config.h` definiert:
 ```cpp
-#define FIRMWARE_VERSION "1.5.5"
+#define FIRMWARE_VERSION "1.5.6"
 ```
 MQTTManager.h und DisplayManager.h verwenden dieses Define — kein Hardcoding!
 
@@ -157,6 +157,7 @@ MQTTManager.h und DisplayManager.h verwenden dieses Define — kein Hardcoding!
 
 | Version | Aenderung |
 |---------|-----------|
+| 1.5.6 | Stealth-Mode Button-Countdown (3-2-1 Overlay, triggert bei 3s Halten statt auf Release); **KRITISCHER FIX**: MQTTManager::init() liest Hostname jetzt aus EEPROM statt Konstruktor-Default — dieselbe Binary kann auf alle Boards geflasht werden |
 | 1.5.5 | MQTT sinnvolle Dezimalstellen; has_entity_name+object_id → saubere entity_ids; aqi_color_code entfernt; alle Felder immer publizieren (0 wenn Sensor offline); FW-Version im OLED |
 | 1.5.4 | MAC-Fix (nach WiFi-Init lesen), unique MQTT Client ID, MQTT Discovery MAC korrekt |
 | 1.5.3 | BSEC State Persistenz, Config EEPROM |

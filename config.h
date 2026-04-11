@@ -2,7 +2,7 @@
 #define CONFIG_H
 
 // ===== FIRMWARE VERSION =====
-#define FIRMWARE_VERSION "1.5.5"
+#define FIRMWARE_VERSION "1.5.6"
 
 // ===== HARDWARE CONFIGURATION =====
 #define LED_PIN 5
@@ -34,7 +34,8 @@
 // Button - only use select
 #define BUTTON_SELECT_PIN 33
 #define BUTTON_DEBOUNCE_MS 50
-#define BUTTON_LONG_PRESS_MS 2000
+#define BUTTON_LONG_PRESS_MS 3000             // 3 seconds to trigger stealth toggle
+#define BUTTON_COUNTDOWN_SHOW_AFTER_MS 300    // Start showing countdown after 300ms hold
 
 // ===== TIMING CONFIGURATION =====
 #define DATA_SEND_INTERVAL 10000       // 10 seconds

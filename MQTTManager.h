@@ -419,7 +419,7 @@ bool MQTTManager::init() {
     DEBUG_ERROR("ConfigManager not initialized");
     return false;
   }
-  
+
   DEBUG_INFO("Initializing MQTT Manager...");
   // Re-read MAC here (after WiFi init). The constructor may have run before the WiFi driver
   // was started, causing WiFi.macAddress() to return garbage (e.g. uninitialized stack bytes).
@@ -427,6 +427,22 @@ bool MQTTManager::init() {
   deviceUniqueId = getMacAddress();
   discoveryPrefix = "homeassistant/sensor/airqualitymonitor_" + deviceUniqueId;
   binarySensorDiscoveryPrefix = "homeassistant/binary_sensor/airqualitymonitor_" + deviceUniqueId;
+
+  // Re-read hostname from ConfigManager here (after configManager->init() has
+  // loaded the persisted EEPROM config). The MQTTManager constructor runs at
+  // global-initialization time, before EEPROM is loaded — so it sees only the
+  // compile-time default from secrets.h. Without this re-read, flashing the
+  // same binary to multiple boards would make them all publish under the
+  // secrets.h default hostname instead of each board's own EEPROM hostname.
+  if (strlen(configManager->getHostname()) > 0) {
+    baseTopic = "tele/" + String(configManager->getHostname());
+  } else if (strlen(configManager->getMqttTopic()) > 0) {
+    baseTopic = "tele/" + String(configManager->getMqttTopic());
+  } else {
+    baseTopic = "tele/airqualitymonitor_" + deviceUniqueId;
+  }
+  statusTopic = baseTopic + "/status";
+
   DEBUG_INFO("Device ID (MAC): %s", deviceUniqueId.c_str());
   DEBUG_INFO("Base topic: %s", baseTopic.c_str());
   DEBUG_INFO("Discovery prefix: %s", discoveryPrefix.c_str());

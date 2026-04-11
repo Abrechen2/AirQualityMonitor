@@ -1,6 +1,6 @@
-# ESP32 Air Quality Monitor v1.5.5
+# ESP32 Air Quality Monitor v1.5.6
 
-![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen) ![Version](https://img.shields.io/badge/Version-1.5.5-blue)
+![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen) ![Version](https://img.shields.io/badge/Version-1.5.6-blue)
 
 Enclosure on Printables: <https://www.printables.com/model/1400485-esp32-air-quality-monitor-beluftetes-sensorgehause>
 
@@ -94,7 +94,35 @@ Button:      GPIO33 (internal pull-up)
 - PubSubClient (MQTT)
 - ArduinoOTA
 
-### 3. Configuration
+### 3. Arduino IDE Board Settings
+
+These are the verified-working settings for the Arduino IDE (Tools menu) when
+flashing an ESP32-WROOM-32 board with this firmware:
+
+| Setting | Value |
+|---------|-------|
+| Board | ESP32 Dev Module |
+| CPU Frequency | 240 MHz (WiFi/BT) |
+| Core Debug Level | None |
+| Erase All Flash Before Sketch Upload | Disabled |
+| Events Run On | Core 1 |
+| Flash Frequency | 80 MHz |
+| Flash Mode | QIO |
+| Flash Size | 4 MB (32 Mb) |
+| JTAG Adapter | Disabled |
+| Arduino Runs On | Core 1 |
+| Partition Scheme | Default 4 MB with spiffs (1.2 MB APP / 1.5 MB SPIFFS) |
+| PSRAM | Disabled |
+| Upload Speed | 115200 |
+| Zigbee Mode | Disabled |
+
+> **Note on Partition Scheme:** The Arduino IDE GUI uses "Default" (1.2 MB APP
+> slots). The `arduino-cli` OTA compile command in `CLAUDE.md` instead uses
+> `min_spiffs` (1.9 MB APP slots) for more headroom as the firmware approaches
+> 85 % of the flash (~1.1 MB). Both work, as long as the binary fits the OTA
+> slot. For the initial USB flash, "Default" is fine.
+
+### 4. Configuration
 
 Create `secrets.h` from the template:
 ```bash
@@ -112,7 +140,7 @@ Fill in credentials:
 #define OTA_PASSWORD    "yourpassword"
 ```
 
-### 4. Compile and Flash
+### 5. Compile and Flash
 
 **Compile:**
 ```bash
@@ -130,7 +158,7 @@ python "$ESPOTA" -i <DEVICE_IP> -p 3232 --auth="<OTA_PASSWORD>" \
   -f ./build/AirQualityMonitor.ino.bin
 ```
 
-### 5. Calibration
+### 6. Calibration
 - **BME680/688**: automatic BSEC calibration, accurate after 24-48h
 - **State persistence** in EEPROM every 6 hours (survives power cycles)
 - **CO2/TVOC accuracy** improves over 4-7 days of continuous operation
@@ -295,6 +323,7 @@ State is saved to EEPROM on first accuracy=2 and every 6h thereafter. After powe
 
 | Version | Changes |
 |---------|---------|
+| **v1.5.6** | Stealth-mode button now shows a 3-2-1 countdown overlay while held and fires the toggle at 3s (no more "release-and-hope"); **critical fix**: `MQTTManager::init()` now re-reads hostname from `ConfigManager` after EEPROM load, so the same binary can be flashed to all boards without publishing under the wrong topic |
 | **v1.5.5** | Sensible MQTT decimal precision; `has_entity_name` + `object_id` for clean HA entity IDs; all fields always published; `aqi_color_code` removed; firmware version on OLED |
 | **v1.5.4** | MAC read after WiFi init (fixes discovery MAC mismatch); unique MQTT client ID per device |
 | **v1.5.3** | BSEC state persistence to EEPROM; config EEPROM storage |

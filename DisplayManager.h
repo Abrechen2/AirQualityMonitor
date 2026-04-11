@@ -19,7 +19,20 @@ private:
   StealthMode stealthMode = STEALTH_OFF;
   bool displayEnabled = true;
   unsigned long stealthTempStartTime = 0;
-  
+
+  // Stealth countdown overlay state (driven by ButtonHandler during long press)
+  bool countdownActive = false;
+  int8_t lastDrawnCountdownSecond = -1;
+
+  // Cache of last-drawn frame — lets us restore the normal view
+  // immediately after the countdown overlay ends without waiting
+  // for the next sensor update (~3s).
+  SensorData lastSensorData{};
+  float lastAqi = 0.0f;
+  String lastAqiLevel = "";
+  bool lastWifiConnected = false;
+  bool hasLastFrame = false;
+
 public:
   DisplayManager(U8G2_SH1106_128X64_NONAME_F_HW_I2C& disp, Adafruit_NeoPixel& strip);
 
@@ -27,19 +40,24 @@ public:
   void updateDisplay(const SensorData& data, float aqi, const String& aqiLevel,
                      bool wifiConnected);
   void showMessage(const String& message, int duration = 1000);
-  
+
   // View control
   void nextView();
   void toggleStealth();
   void activateStealthTemp();
-  
+
+  // Stealth countdown overlay — called from ButtonHandler during long press
+  void showStealthCountdown(uint16_t remainingMs);
+  void hideStealthCountdown();
+  bool isCountdownActive() const { return countdownActive; }
+
   // Status
   bool isDisplayEnabled() const { return displayEnabled; }
   DisplayView getCurrentView() const { return currentView; }
   StealthMode getStealthMode() const { return stealthMode; }
-  
+
   void resetActivity() { /* no longer used */ }
-  
+
 private:
     void drawOverview(const SensorData& data, float aqi, const String& aqiLevel, bool wifiConnected);
     void drawEnvironment(const SensorData& data, bool wifiConnected);
@@ -53,6 +71,7 @@ private:
     void drawStatusIcon(int x, int y, bool connected, bool isWiFi);
   void updateStealthMode();
   void updateDisplayBrightness();
+  void drawStealthCountdownFrame(int seconds);
 };
 
 // ===== IMPLEMENTATION =====
@@ -86,16 +105,30 @@ void DisplayManager::updateDisplay(const SensorData& data, float aqi, const Stri
   if (!displayEnabled) {
     return;
   }
-  
+
+  // Cache last frame data so hideStealthCountdown() can restore the view
+  // immediately on button release (instead of waiting for the next sensor tick).
+  lastSensorData = data;
+  lastAqi = aqi;
+  lastAqiLevel = aqiLevel;
+  lastWifiConnected = wifiConnected;
+  hasLastFrame = true;
+
+  // While the stealth-countdown overlay is showing, the button handler owns
+  // the screen — skip the normal redraw to avoid flicker.
+  if (countdownActive) {
+    return;
+  }
+
   updateStealthMode();
-  
+
   // In stealth mode: display off
   if (stealthMode == STEALTH_ON) {
     display.clearBuffer();
     display.sendBuffer();
     return;
   }
-  
+
   display.clearBuffer();
   
     switch (currentView) {
@@ -439,11 +472,84 @@ void DisplayManager::updateStealthMode() {
 
 void DisplayManager::updateDisplayBrightness() {
   if (!displayEnabled) return;
-  
+
   if (stealthMode == STEALTH_ON) {
     display.setContrast(DISPLAY_CONTRAST_STEALTH); // Display off
   } else {
     display.setContrast(DISPLAY_CONTRAST_NORMAL);  // Display normal
+  }
+}
+
+// ===== STEALTH COUNTDOWN OVERLAY =====
+// Called repeatedly from ButtonHandler while the select button is held.
+// Ceiling-rounds remainingMs to whole seconds so the shown digit ticks
+// 3 -> 2 -> 1 cleanly. Internally rate-limited: only redraws when the
+// shown digit changes, so a fast main loop doesn't thrash the OLED.
+void DisplayManager::showStealthCountdown(uint16_t remainingMs) {
+  if (!displayEnabled) return;
+
+  // Temporarily bring the display to full contrast so the countdown
+  // is visible even when stealth mode was active beforehand.
+  if (!countdownActive) {
+    display.setContrast(DISPLAY_CONTRAST_NORMAL);
+  }
+
+  countdownActive = true;
+
+  // Ceiling division: 3000 -> 3, 2001 -> 3, 2000 -> 2, 1 -> 1, 0 -> 0
+  int seconds = (int)((remainingMs + 999) / 1000);
+  if (seconds < 0) seconds = 0;
+  if (seconds > 9) seconds = 9;
+
+  if (seconds == lastDrawnCountdownSecond) {
+    return;  // Nothing changed -> avoid redraw
+  }
+
+  drawStealthCountdownFrame(seconds);
+  lastDrawnCountdownSecond = seconds;
+}
+
+void DisplayManager::drawStealthCountdownFrame(int seconds) {
+  display.clearBuffer();
+
+  // Header
+  display.setFont(u8g2_font_ncenB08_tr);
+  const char* header = "STEALTH MODE";
+  int headerW = display.getUTF8Width(header);
+  display.drawStr((SCREEN_WIDTH - headerW) / 2, 10, header);
+
+  // Big countdown digit — logisoso32 is numeric-only and exactly
+  // what we need here (32px tall, clean sans).
+  display.setFont(u8g2_font_logisoso32_tn);
+  char digit[2] = { (char)('0' + seconds), '\0' };
+  int digitW = display.getUTF8Width(digit);
+  display.drawStr((SCREEN_WIDTH - digitW) / 2, 48, digit);
+
+  // Footer hint
+  display.setFont(u8g2_font_ncenB08_tr);
+  const char* hint = "Halten...";
+  int hintW = display.getUTF8Width(hint);
+  display.drawStr((SCREEN_WIDTH - hintW) / 2, 62, hint);
+
+  display.sendBuffer();
+}
+
+void DisplayManager::hideStealthCountdown() {
+  if (!countdownActive) return;
+
+  countdownActive = false;
+  lastDrawnCountdownSecond = -1;
+
+  // Restore the brightness appropriate for the current stealth mode.
+  updateDisplayBrightness();
+
+  // Immediately redraw the normal view with cached sensor data so the
+  // countdown doesn't linger on screen until the next sensor update.
+  if (hasLastFrame) {
+    updateDisplay(lastSensorData, lastAqi, lastAqiLevel, lastWifiConnected);
+  } else {
+    display.clearBuffer();
+    display.sendBuffer();
   }
 }
 

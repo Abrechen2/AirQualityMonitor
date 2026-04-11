@@ -19,6 +19,7 @@ private:
   unsigned long lastInterruptTime = 0;
   uint32_t lastInterruptCount = 0;
   bool selectWaitingRelease = false;
+  bool longPressActionTriggered = false;  // Stealth toggle fired while still held
 
 public:
   ButtonHandler(DisplayManager& display);
@@ -63,20 +64,52 @@ void ButtonHandler::update() {
   selectFlag = false;
   portEXIT_CRITICAL(&selectMux);
 
-  // Debounce: Only process if enough time has passed since last interrupt
+  // Handle press start (rising edge of "pressed") — ISR fires on FALLING.
   if (flagCopy) {
-    if (currentTime - lastInterruptTime >= BUTTON_DEBOUNCE_MS || 
+    if (currentTime - lastInterruptTime >= BUTTON_DEBOUNCE_MS ||
         currentInterruptCount != lastInterruptCount) {
       selectPressTime = currentTime;
       selectWaitingRelease = true;
+      longPressActionTriggered = false;
       lastInterruptTime = currentTime;
       lastInterruptCount = currentInterruptCount;
     }
   }
 
-  if (selectWaitingRelease && digitalRead(BUTTON_SELECT_PIN) == HIGH) {
+  if (!selectWaitingRelease) {
+    return;
+  }
+
+  bool buttonDown = (digitalRead(BUTTON_SELECT_PIN) == LOW);
+  unsigned long heldFor = currentTime - selectPressTime;
+
+  if (buttonDown) {
+    // Still held — drive the countdown and fire on threshold (don't wait for release).
+    if (!longPressActionTriggered) {
+      if (heldFor >= BUTTON_LONG_PRESS_MS) {
+        // Threshold crossed while still held: fire the stealth toggle NOW
+        // so the user sees the effect immediately and can release any time.
+        displayManager.hideStealthCountdown();
+        handleSelectButtonLong();
+        longPressActionTriggered = true;
+      } else if (heldFor >= BUTTON_COUNTDOWN_SHOW_AFTER_MS) {
+        // Show the 3..2..1 countdown overlay. The DisplayManager
+        // rate-limits internally, so calling this every loop is fine.
+        uint16_t remaining = (uint16_t)(BUTTON_LONG_PRESS_MS - heldFor);
+        displayManager.showStealthCountdown(remaining);
+      }
+    }
+  } else {
+    // Released — end the gesture.
     selectWaitingRelease = false;
-    if ((currentTime - selectPressTime) > BUTTON_LONG_PRESS_MS) {
+    displayManager.hideStealthCountdown();
+
+    if (longPressActionTriggered) {
+      // Stealth toggle already fired while held — nothing more to do.
+      longPressActionTriggered = false;
+    } else if (heldFor >= BUTTON_LONG_PRESS_MS) {
+      // Safety net: released exactly at / after the threshold without
+      // the hold-branch catching it (shouldn't normally happen).
       handleSelectButtonLong();
     } else {
       handleSelectButtonShort();
