@@ -310,10 +310,14 @@ void DisplayManager::drawSystem(const SensorData& data, bool wifiConnected) {
     display.print("Offline");
   }
 
-  // Sensor Count
+  // Sensor Count (left) + Firmware Version (right)
   display.setCursor(0, 62);
   display.printf("Sens: %d/3",
     (data.bme68xAvailable ? 1 : 0) + (data.ds18b20Available ? 1 : 0) + (data.pms5003Available ? 1 : 0));
+  String ver = "v" + String(FIRMWARE_VERSION);
+  int verWidth = display.getUTF8Width(ver.c_str());
+  display.setCursor(SCREEN_WIDTH - verWidth, 62);
+  display.print(ver.c_str());
 }
 
 void DisplayManager::drawWiFiIcon(int x, int y, bool connected) {

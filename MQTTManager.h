@@ -140,7 +140,7 @@ void MQTTManager::addDeviceBlock(JsonObject& cfg) const {
     : "Air Quality Monitor";
   dev["manufacturer"] = "Abrechen2";
   dev["model"]        = "Air Quality Monitor v1.5";
-  dev["sw_version"]   = "1.5.4";
+  dev["sw_version"]   = FIRMWARE_VERSION;
 }
 
 bool MQTTManager::publishSensorDiscovery(const String& sensorName, const String& deviceClass,
@@ -156,10 +156,15 @@ bool MQTTManager::publishSensorDiscovery(const String& sensorName, const String&
   // leaving too little room for the other fields and causing silent truncation.
   StaticJsonDocument<1024> config;
 
-  config["name"] = (configManager && strlen(configManager->getHostname()) > 0)
-    ? String(configManager->getHostname()) + " " + sensorName
-    : sensorName;
-  config["unique_id"]              = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
+  config["name"]            = sensorName;
+  config["has_entity_name"] = true;
+  config["unique_id"]       = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
+  if (configManager && strlen(configManager->getHostname()) > 0) {
+    String slug = String(configManager->getHostname());
+    slug.toLowerCase();
+    slug.replace("-", "_");
+    config["object_id"] = slug + "_" + sensorName;
+  }
   config["state_topic"]            = baseTopic + "/state";
   config["availability_topic"]     = statusTopic;
   config["payload_available"]      = "online";
@@ -203,11 +208,16 @@ bool MQTTManager::publishBinarySensorDiscovery(const String& sensorName, const S
 
   StaticJsonDocument<1024> config;
 
-  config["name"] = (configManager && strlen(configManager->getHostname()) > 0)
-    ? String(configManager->getHostname()) + " " + sensorName
-    : sensorName;
-  config["unique_id"]             = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
-  config["state_topic"]           = baseTopic + "/state";
+  config["name"]            = sensorName;
+  config["has_entity_name"] = true;
+  config["unique_id"]       = "airqualitymonitor_" + deviceUniqueId + "_" + sensorName;
+  if (configManager && strlen(configManager->getHostname()) > 0) {
+    String slug = String(configManager->getHostname());
+    slug.toLowerCase();
+    slug.replace("-", "_");
+    config["object_id"] = slug + "_" + sensorName;
+  }
+  config["state_topic"]     = baseTopic + "/state";
   config["availability_topic"]    = statusTopic;
   config["payload_available"]     = "online";
   config["payload_not_available"] = "offline";
@@ -611,23 +621,23 @@ void MQTTManager::publishData(const SensorData& data, float aqi, const String& a
   
   // Direct sensor data - use short names matching discovery config
   if (data.bme68xAvailable) {
-    doc["temperature"] = data.temperature;
-    doc["humidity"] = data.humidity;
-    doc["pressure"] = data.pressure;
-    doc["iaq"] = data.iaq;
-    doc["static_iaq"] = data.staticIaq;
-    doc["iaq_accuracy"] = data.iaqAccuracy;
-    doc["static_iaq_accuracy"] = data.staticIaqAccuracy;
-    doc["co2"] = data.co2Equivalent;
-    doc["co2_accuracy"] = data.co2Accuracy;
-    doc["voc"] = data.breathVocEquivalent;
-    doc["voc_accuracy"] = data.breathVocAccuracy;
-    doc["gas_resistance"] = data.gasResistance;
-    doc["bsec_calibrated"] = data.bsecCalibrated ? 1 : 0;
-    doc["tvoc_ppb"] = (uint16_t)(data.breathVocEquivalent * 1000.0f);
-    doc["tvoc_mgm3"] = data.breathVocEquivalent;
+    doc["temperature"]          = roundf(data.temperature * 100) / 100.0f;   // 2dp °C
+    doc["humidity"]             = roundf(data.humidity * 10) / 10.0f;        // 1dp %
+    doc["pressure"]             = roundf(data.pressure * 10) / 10.0f;        // 1dp hPa
+    doc["iaq"]                  = roundf(data.iaq);                           // 0dp
+    doc["static_iaq"]           = roundf(data.staticIaq);                     // 0dp
+    doc["iaq_accuracy"]         = data.iaqAccuracy;
+    doc["static_iaq_accuracy"]  = data.staticIaqAccuracy;
+    doc["co2"]                  = roundf(data.co2Equivalent);                 // 0dp ppm
+    doc["co2_accuracy"]         = data.co2Accuracy;
+    doc["voc"]                  = roundf(data.breathVocEquivalent * 100) / 100.0f; // 2dp mg/m³
+    doc["voc_accuracy"]         = data.breathVocAccuracy;
+    doc["gas_resistance"]       = (uint32_t)roundf(data.gasResistance);       // 0dp Ω
+    doc["bsec_calibrated"]      = data.bsecCalibrated ? 1 : 0;
+    doc["tvoc_ppb"]             = (uint16_t)(data.breathVocEquivalent * 1000.0f);
+    doc["tvoc_mgm3"]            = roundf(data.breathVocEquivalent * 100) / 100.0f; // 2dp mg/m³
   }
-  
+
   // Particulate matter — always publish so HA value_templates never get a missing-key warning.
   // When PMS5003 is offline, sensor_pms5003_available=0 signals the unavailability.
   doc["pm1_0"] = data.pms5003Available ? data.pm1_0 : 0;
@@ -635,16 +645,16 @@ void MQTTManager::publishData(const SensorData& data, float aqi, const String& a
   doc["pm10"]  = data.pms5003Available ? data.pm10  : 0;
 
   // Calculated comfort values — always publish (0 when BME68X offline)
-  doc["dew_point"]         = data.bme68xAvailable ? dewPoint        : 0.0f;
-  doc["heat_index"]        = data.bme68xAvailable ? heatIndex       : 0.0f;
-  doc["absolute_humidity"] = data.bme68xAvailable ? absoluteHumidity: 0.0f;
-  doc["comfort_index"]     = data.bme68xAvailable ? comfortIndex    : 0.0f;
+  doc["dew_point"]         = data.bme68xAvailable ? roundf(dewPoint * 10) / 10.0f         : 0.0f; // 1dp °C
+  doc["heat_index"]        = data.bme68xAvailable ? roundf(heatIndex * 10) / 10.0f        : 0.0f; // 1dp °C
+  doc["absolute_humidity"] = data.bme68xAvailable ? roundf(absoluteHumidity * 100) / 100.0f : 0.0f; // 2dp g/m³
+  doc["comfort_index"]     = data.bme68xAvailable ? comfortIndex                           : 0;
 
   // External temperature — always publish (0 when DS18B20 offline)
-  doc["external_temperature"] = data.ds18b20Available ? data.externalTemp : 0.0f;
+  doc["external_temperature"] = data.ds18b20Available ? roundf(data.externalTemp * 100) / 100.0f : 0.0f; // 2dp °C
 
   // AQI values
-  doc["aqi_index"]    = aqi;
+  doc["aqi_index"]    = roundf(aqi * 10) / 10.0f;                            // 1dp
   doc["aqi_category"] = aqiCategory;
   doc["pm2_5_aqi"]    = data.pms5003Available ? pm25_aqi : 0;
   doc["pm10_aqi"]     = data.pms5003Available ? pm10_aqi : 0;

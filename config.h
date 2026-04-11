@@ -1,6 +1,9 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+// ===== FIRMWARE VERSION =====
+#define FIRMWARE_VERSION "1.5.5"
+
 // ===== HARDWARE CONFIGURATION =====
 #define LED_PIN 5
 #define NUM_LEDS 3
