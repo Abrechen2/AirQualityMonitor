@@ -1,394 +1,292 @@
-# 📊 Datenpunkte Erklärung - ESP32 Luftqualitätssensor
+# Datenpunkte Erklaerung - ESP32 Luftqualitaetssensor
 
-Diese Dokumentation erklärt detailliert alle vom Sensor erfassten Datenpunkte, deren Berechnung und Bedeutung.
+Diese Dokumentation erklaert alle vom Sensor erfassten und berechneten Datenpunkte,
+deren Bedeutung, Quelle und Praezision im MQTT-State-Topic.
 
-## 🌡️ BME680 Sensor (BSEC-verarbeitet)
-
-### Basis-Umweltdaten
-
-#### **Temperatur** (`temperature`)
-- **Typ**: `float` (°C)
-- **Bereich**: -40°C bis +85°C
-- **Genauigkeit**: ±1.0°C (0-65°C)
-- **Quelle**: BME680 mit BSEC-Kompensation
-- **Besonderheit**: Automatische Selbsterwärmung-Kompensation durch BSEC
-- **Korrektur**: Zusätzliche Softwarekorrektur um `DEFAULT_TEMP_CORRECTION`
-
-```cpp
-currentData.temperature = bme68x.temperature + tempCorrection;
-```
-
-#### **Luftfeuchtigkeit** (`humidity`)
-- **Typ**: `float` (% rH)
-- **Bereich**: 0-100% rH
-- **Genauigkeit**: ±3% rH (20-80% rH)
-- **Hysterese**: ±1.5% rH
-- **Quelle**: BME680 mit BSEC-Kompensation
-- **Korrektur**: Zusätzliche Softwarekorrektur um `DEFAULT_HUMIDITY_CORRECTION`
-
-```cpp
-currentData.humidity = bme68x.humidity + humidityCorrection;
-```
-
-#### **Luftdruck** (`pressure`)
-- **Typ**: `float` (hPa)
-- **Bereich**: 300-1100 hPa
-- **Genauigkeit**: ±1.0 hPa (900-1100 hPa)
-- **Auflösung**: 0.18 Pa
-- **Konvertierung**: Von Pa zu hPa
-
-```cpp
-currentData.pressure = bme68x.pressure / 100.0; // Pa → hPa
-```
-
-#### **Gas-Widerstand** (`gasResistance`)
-- **Typ**: `float` (Ω)
-- **Bereich**: 10-200,000 Ω
-- **Zweck**: Rohdaten für BSEC-Algorithmus
-- **Bedeutung**: Niedriger Widerstand = schlechtere Luftqualität
-
-### BSEC-Algorithmus Outputs
-
-#### **IAQ - Indoor Air Quality** (`iaq`)
-- **Typ**: `float` (Index)
-- **Bereich**: 0-500
-- **Quelle**: Bosch BSEC Proprietary Algorithm
-- **Berechnung**: Komplexer Algorithmus basierend auf Gas-Widerstand, Temperatur und Luftfeuchtigkeit
-- **Kalibrierung**: Verbessert sich über 4-7 Tage
-- **Modus**: ULP (Ultra Low Power) - 0.33 Hz Update Rate
-
-**IAQ Bewertungsskala:**
-- 0-50: Excellent (Ausgezeichnet)
-- 51-100: Good (Gut)
-- 101-150: Lightly Polluted (Leicht verschmutzt)
-- 151-200: Moderately Polluted (Mäßig verschmutzt)
-- 201-300: Heavily Polluted (Stark verschmutzt)
-- 300+: Severely Polluted (Extrem verschmutzt)
-
-#### **Static IAQ** (`staticIaq`)
-- **Typ**: `float` (Index)
-- **Unterschied zu IAQ**: Weniger empfindlich gegenüber kurzfristigen Änderungen
-- **Verwendung**: Langzeit-Trendanalyse
-- **Stabilität**: Glättung über längeren Zeitraum
-
-#### **CO₂-Äquivalent** (`co2Equivalent`)
-- **Typ**: `float` (ppm)
-- **Bereich**: 400-40,000 ppm
-- **Berechnung**: BSEC-Algorithmus korreliert Gas-Widerstand mit typischen CO₂-Werten
-- **Wichtig**: ⚠️ **NICHT direkt gemessen!** Algorithmus-basierte Schätzung
-
-**CO₂-Bewertung:**
-- 400-1000 ppm: Gut
-- 1000-2000 ppm: Akzeptabel
-- 2000-5000 ppm: Schlecht
-- >5000 ppm: Gesundheitsschädlich
-
-```cpp
-currentData.co2Equivalent = bme68x.co2Equivalent;
-```
-
-#### **TVOC-Äquivalent** (`breathVocEquivalent`)
-- **Typ**: `float` (mg/m³)
-- **Bereich**: 0-60 mg/m³
-- **Vollname**: Total Volatile Organic Compounds
-- **Berechnung**: BSEC-Algorithmus basierend auf Gas-Sensor-Response
-- **Quellen**: Farben, Reinigungsmittel, Möbel, Menschen
-
-**TVOC-Bewertung:**
-- 0-0.3 mg/m³: Excellent
-- 0.3-1.0 mg/m³: Good
-- 1.0-3.0 mg/m³: Moderate
-- 3.0-25 mg/m³: Poor
-- >25 mg/m³: Unhealthy
-
-### Genauigkeits-Indikatoren
-
-#### **IAQ Accuracy** (`iaqAccuracy`)
-- **Typ**: `uint8_t` (0-3)
-- **Bedeutung**: 
-  - 0: Sensor läuft ein (erste 4h)
-  - 1: Unsichere Kalibrierung
-  - 2: Kalibrierung in Arbeit (nach ~24h)
-  - 3: Kalibriert (nach 4-7 Tagen)
-
-```cpp
-// BSEC Kalibrierungsstatus
-currentData.bsecCalibrated = (currentData.iaqAccuracy >= 2);
-```
-
-#### Weitere Genauigkeits-Flags
-- `staticIaqAccuracy`: Genauigkeit des Static IAQ
-- `co2Accuracy`: Genauigkeit der CO₂-Schätzung  
-- `breathVocAccuracy`: Genauigkeit der TVOC-Schätzung
-
-### BSEC Konfiguration (Version 0.9)
-```cpp
-// ULP Mode mit optimierter Sensor-Liste
-bsec_virtual_sensor_t sensorList[13] = {
-    BSEC_OUTPUT_IAQ,
-    BSEC_OUTPUT_STATIC_IAQ,
-    BSEC_OUTPUT_CO2_EQUIVALENT,
-    BSEC_OUTPUT_BREATH_VOC_EQUIVALENT,
-    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE,
-    BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY,
-    BSEC_OUTPUT_RAW_PRESSURE,
-    BSEC_OUTPUT_RAW_GAS,
-    BSEC_OUTPUT_STABILIZATION_STATUS,
-    BSEC_OUTPUT_RUN_IN_STATUS,
-    BSEC_OUTPUT_RAW_TEMPERATURE,
-    BSEC_OUTPUT_RAW_HUMIDITY,
-    BSEC_OUTPUT_GAS_PERCENTAGE
-};
-bme68x.updateSubscription(sensorList, 13, BSEC_SAMPLE_RATE_ULP);
-```
-
-## 🌡️ DS18B20 Temperatursensor
-
-#### **Externe Temperatur** (`externalTemp`)
-- **Typ**: `float` (°C)
-- **Bereich**: -55°C bis +125°C
-- **Genauigkeit**: ±0.5°C (-10°C bis +85°C)
-- **Auflösung**: 12-bit (0.0625°C)
-- **Zweck**: Referenz-Temperatur ohne Selbsterwärmung
-- **Vorteil**: Präziser als BME680 für absolute Temperatur
-- **Leseintervall**: Alle 10 Sekunden (optimiert für Energieeffizienz)
-
-```cpp
-ds18b20.requestTemperatures();
-delay(750); // 12-bit conversion time
-float temp = ds18b20.getTempCByIndex(0);
-```
-
-## 💨 PMS5003 Feinstaubsensor
-
-### Funktionsprinzip: Laser-Streuung
-Der PMS5003 verwendet ein Laser-Streulicht-Verfahren:
-1. **Laser-Diode** beleuchtet Luftstrom
-2. **Photodiode** detektiert gestreutes Licht
-3. **Mikrocontroller** zählt und kategorisiert Partikel
-4. **Umrechnung** in Massenkonzentration (µg/m³)
-
-#### **PM1.0** (`pm1_0`)
-- **Typ**: `uint16_t` (µg/m³)
-- **Definition**: Massenkonzentration von Partikeln ≤1.0µm Durchmesser
-- **Gesundheit**: Dringen tief in Lungenbläschen ein
-- **Quellen**: Verbrennungsprozesse, Autoabgase
-
-#### **PM2.5** (`pm2_5`) 
-- **Typ**: `uint16_t` (µg/m³)
-- **Definition**: Massenkonzentration von Partikeln ≤2.5µm Durchmesser
-- **Gesundheit**: WHO-überwachter Parameter, krebserregend
-- **Grenzwerte (WHO 2021)**:
-  - Jahresmittel: 5 µg/m³
-  - 24h-Mittel: 15 µg/m³
-
-#### **PM10** (`pm10`)
-- **Typ**: `uint16_t` (µg/m³)  
-- **Definition**: Massenkonzentration von Partikeln ≤10µm Durchmesser
-- **Gesundheit**: Atemwegsirritation, Asthma-Trigger
-- **Grenzwerte (WHO 2021)**:
-  - Jahresmittel: 15 µg/m³
-  - 24h-Mittel: 45 µg/m³
-
-**PM-Bewertungsskala:**
-- 0-12 µg/m³: Gut
-- 12-35 µg/m³: Mäßig
-- 35-55 µg/m³: Ungesund für sensitive Gruppen
-- 55-150 µg/m³: Ungesund
-- 150-250 µg/m³: Sehr ungesund
-- >250 µg/m³: Gefährlich
-
-### PMS5003 Energiemanagement (Version 0.9)
-```cpp
-// Optimierter Messzyklus mit Sleep-Modus
-pms5003.wakeUp();
-delay(3000); // Stabilisierung
-pms5003.requestRead();
-if (pms5003.readUntil(pmsData)) {
-    currentData.pm1_0 = pmsData.PM_AE_UG_1_0;  // Atmospheric Environment
-    currentData.pm2_5 = pmsData.PM_AE_UG_2_5;
-    currentData.pm10 = pmsData.PM_AE_UG_10_0;
-}
-pms5003.sleep(); // Energiesparen nach jeder Messung
-```
-
-## 🔌 System-Status Datenpunkte
-
-#### **Verfügbarkeits-Flags**
-```cpp
-bool bme68xAvailable;    // BME680 funktionsfähig
-bool ds18b20Available;   // DS18B20 gefunden
-bool pms5003Available;   // PMS5003 kommuniziert
-bool bsecCalibrated;     // BSEC Genauigkeit ≥2
-```
-
-#### **WiFi & System**
-```cpp
-uint32_t uptime_seconds; // Betriebszeit in Sekunden
-int8_t wifi_rssi;        // WiFi Signalstärke (dBm)
-```
-
-## 🔧 Sensor-Initialisierung (Version 0.9)
-
-### Automatische I2C-Adresserkennung
-```cpp
-// BME680 Adresse automatisch ermitteln
-uint8_t bmeAddress = 0;
-if (scanI2CDevice(BME68X_I2C_ADDR_HIGH)) {
-    bmeAddress = BME68X_I2C_ADDR_HIGH;  // 0x77
-} else if (scanI2CDevice(BME68X_I2C_ADDR_LOW)) {
-    bmeAddress = BME68X_I2C_ADDR_LOW;   // 0x76
-}
-```
-
-### Exception-Handling
-- **Robuste Initialisierung** mit try-catch für alle Sensoren
-- **Graceful Degradation** bei Sensor-Ausfällen
-- **Automatische Fehlerbehandlung** ohne System-Crash
-
-## 📡 Datenübertragungsprotokoll
-
-### Binäres Format (44 Bytes total)
-
-#### **Header (4 Bytes)**
-```cpp
-uint32_t timestamp;           // Sekunden seit Start
-```
-
-#### **BME68X Block (24 Bytes)**
-```cpp
-int16_t bme_temperature;      // °C * 100
-uint16_t bme_humidity;        // % * 100
-uint16_t bme_pressure;        // hPa * 10
-uint32_t gas_resistance;      // Ω
-uint16_t iaq;                 // IAQ * 10
-uint16_t static_iaq;          // Static IAQ * 10
-uint16_t co2_equivalent;      // ppm
-uint16_t breath_voc;          // mg/m³ * 100
-uint8_t iaq_accuracy;         // 0-3
-uint8_t co2_accuracy;         // 0-3
-uint8_t voc_accuracy;         // 0-3
-uint8_t bme_flags;            // Verfügbarkeit + Kalibrierung
-```
-
-#### **DS18B20 Block (3 Bytes)**
-```cpp
-int16_t ds_temperature;       // °C * 100
-uint8_t ds_flags;             // Bit 0: verfügbar
-```
-
-#### **PMS5003 Block (7 Bytes)**
-```cpp
-uint16_t pm1_0;               // µg/m³
-uint16_t pm2_5;               // µg/m³
-uint16_t pm10;                // µg/m³
-uint8_t pms_flags;            // Bit 0: verfügbar
-```
-
-#### **System Block (5 Bytes)**
-```cpp
-uint32_t uptime_seconds;      // Sekunden seit Start
-int8_t wifi_rssi;             // dBm
-```
-
-#### **Komprimierungs-Algorithmus**
-```cpp
-// Temperatur: -40°C bis +85°C → int16 (-4000 bis +8500)
-packet.temperature = (int16_t)(data.temperature * 100);
-
-// Luftfeuchtigkeit: 0-100% → uint16 (0 bis 10000)
-packet.humidity = (uint16_t)(data.humidity * 100);
-
-// Druck: 300-1100 hPa → uint16 (3000 bis 11000)
-packet.pressure = (uint16_t)(data.pressure * 10);
-
-// IAQ: 0-500 → uint16 (0 bis 5000)
-packet.iaq = (uint16_t)(data.iaq * 10);
-packet.static_iaq = (uint16_t)(data.staticIaq * 10);
-
-// TVOC: 0-60 mg/m³ → uint16 (0 bis 6000)
-packet.breath_voc = (uint16_t)(data.breathVocEquivalent * 100);
-```
-
-### Checksumme-Validierung
-```cpp
-uint8_t calculateChecksum(const SensorDataPacket& packet) {
-    uint8_t checksum = 0;
-    const uint8_t* bytes = (const uint8_t*)&packet;
-    
-    // XOR aller Bytes außer Checksumme
-    for (size_t i = 0; i < sizeof(SensorDataPacket) - 1; i++) {
-        checksum ^= bytes[i];
-    }
-    return checksum;
-}
-```
-
-## 🎯 AQI-Berechnung (Extern)
-
-Der Sensor sendet Rohdaten an Node-RED für erweiterte AQI-Berechnung:
-
-```json
-{
-    "pm2_5": 15,
-    "pm10": 25, 
-    "iaq": 75,
-    "co2": 650,
-    "calibrated": true
-}
-```
-
-**Antwort:**
-```json
-{
-    "aqi": 65,
-    "level": "Gut",
-    "color": "#00FF00",
-    "dominant": "PM2.5"
-}
-```
-
-## 💾 BSEC State Management (Version 0.9)
-
-### Automatisches Speichern
-```cpp
-// State alle 6 Stunden speichern
-if (currentData.bme68xAvailable && (millis() - lastStateTime > BSEC_STATE_SAVE_INTERVAL)) {
-    saveBsecState();
-    lastStateTime = millis();
-}
-```
-
-### Plausibilitätsprüfung
-```cpp
-// Geladenen State validieren
-if (serializedStateLength == 0 || serializedStateLength > BSEC_MAX_STATE_BLOB_SIZE) {
-    DEBUG_PRINTLN("No valid BSEC state found - starting fresh");
-    return;
-}
-```
-
-## ⚠️ Wichtige Hinweise
-
-### BSEC-Kalibrierung
-- **Erste Messungen unzuverlässig** - mindestens 24h laufen lassen
-- **State wird alle 6h gespeichert** für schnellere Rekalibrierung
-- **Optimale Genauigkeit nach 4-7 Tagen** kontinuierlichem Betrieb
-- **ULP Mode**: Response Time ~1.4s, Update Rate 0.33Hz, Power ~0.1mA
-
-### Sensor-Limitationen
-- **CO₂**: Nicht direkt gemessen, nur BSEC-Schätzung
-- **TVOC**: Relativ-Werte, nicht absolute Konzentration
-- **PMS5003**: Empfindlich gegen Luftfeuchtigkeit >85%
-- **BME680**: Selbsterwärmung bei häufiger Messung (durch BSEC kompensiert)
-
-### Wartung & Optimierungen (Version 0.9)
-- **PMS5003**: Automatischer Sleep-Modus nach jeder Messung
-- **DS18B20**: Reduzierte Lesefrequenz (10s Intervall)
-- **BSEC State**: Robustes Backup-System verhindert Kalibrierungsverlust
-- **Exception-Handling**: Verbesserte Fehlerbehandlung
-- **Temperatur-Korrektur**: Konfigurierbare Offsets für BME680
+**MQTT State-Topic:** `tele/<HOSTNAME>/state`  
+**Aktualisierungsintervall:** 10 Sekunden
 
 ---
 
-*Diese Dokumentation beschreibt die Implementierung in Version 0.9 des ESP32 Air Quality Monitors*
+## BME680 / BME688 Sensor (via BSEC LP-Mode)
+
+### Basis-Umweltdaten
+
+#### `temperature` — BME68X Temperatur
+- **Typ:** float, 2 Dezimalstellen (°C)
+- **Bereich:** -40 bis +85 °C
+- **Quelle:** BSEC-kompensiert (Selbsterwärmungskorrektur integriert) + Software-Offset (`DEFAULT_TEMP_CORRECTION`)
+- **Hinweis:** Für absolute Raumtemperatur DS18B20 verwenden (`external_temperature`)
+
+#### `humidity` — Luftfeuchtigkeit
+- **Typ:** float, 1 Dezimalstelle (% rH)
+- **Bereich:** 0–100 %
+- **Genauigkeit:** ±3 % rH (20–80 % rH)
+- **Quelle:** BME68X via BSEC, mit Software-Offset (`DEFAULT_HUMIDITY_CORRECTION`)
+
+#### `pressure` — Luftdruck
+- **Typ:** float, 1 Dezimalstelle (hPa)
+- **Bereich:** 300–1100 hPa
+- **Genauigkeit:** ±1.0 hPa
+- **Quelle:** BME68X Rohwert (Pa → hPa)
+
+#### `gas_resistance` — Gaswiderstand
+- **Typ:** integer (Ω)
+- **Bereich:** ~10.000–500.000 Ω
+- **Bedeutung:** Rohdaten des MOX-Gassensors. Niedriger Wert = schlechtere Luftqualität / mehr flüchtige organische Verbindungen
+- **Hinweis:** Nicht direkt interpretierbar — BSEC verarbeitet diesen Wert intern
+
+### BSEC-Algorithmus Outputs
+
+#### `iaq` — Indoor Air Quality
+- **Typ:** integer (0–500)
+- **Quelle:** Proprietärer Bosch BSEC Algorithmus (Gaswiderstand, Temperatur, Luftfeuchtigkeit)
+- **Kalibrierung:** Verbessert sich über 4–7 Tage; State wird alle 6h in EEPROM gespeichert
+
+| Wert | Bewertung |
+|------|-----------|
+| 0–50 | Excellent |
+| 51–100 | Good |
+| 101–150 | Lightly Polluted |
+| 151–200 | Moderately Polluted |
+| 201–300 | Heavily Polluted |
+| 300+ | Severely Polluted |
+
+#### `static_iaq` — Static IAQ
+- **Typ:** integer (0–500)
+- **Unterschied zu IAQ:** Weniger empfindlich gegenüber kurzfristigen Änderungen, besser für Langzeittrend
+
+#### `iaq_accuracy` / `static_iaq_accuracy` — Kalibrierungsfortschritt
+- **Typ:** integer (0–3)
+
+| Wert | Bedeutung |
+|------|-----------|
+| 0 | Sensor läuft ein (erste ~5 min) |
+| 1 | Unsichere Kalibrierung |
+| 2 | Kalibrierung aktiv (~24h) |
+| 3 | Vollständig kalibriert (4–7 Tage) |
+
+#### `co2` — CO₂-Äquivalent
+- **Typ:** integer (ppm)
+- **Bereich:** 400–40.000 ppm
+- **Wichtig:** Nicht direkt gemessen — BSEC-Schätzung auf Basis des Gaswiderstandsverlaufs
+
+| Wert | Bewertung |
+|------|-----------|
+| 400–1000 ppm | Gut |
+| 1000–2000 ppm | Akzeptabel |
+| 2000–5000 ppm | Schlecht |
+| >5000 ppm | Gesundheitsschädlich |
+
+#### `co2_accuracy` — CO₂ Genauigkeitsstatus
+- **Typ:** integer (0–3), wie `iaq_accuracy`
+
+#### `voc` / `tvoc_mgm3` — TVOC-Äquivalent
+- **Typ:** float, 2 Dezimalstellen (mg/m³)
+- **Bereich:** 0–60 mg/m³
+- **Vollname:** Total Volatile Organic Compounds
+- **Quelle:** BSEC-Algorithmus (Gaswiderstandsverlauf)
+- **Hinweis:** Relative Werte, keine absoluten Konzentrationen einzelner Substanzen
+
+| Wert | Bewertung |
+|------|-----------|
+| 0–0.3 mg/m³ | Excellent |
+| 0.3–1.0 mg/m³ | Good |
+| 1.0–3.0 mg/m³ | Moderate |
+| 3.0–25 mg/m³ | Poor |
+| >25 mg/m³ | Unhealthy |
+
+#### `tvoc_ppb` — TVOC in ppb
+- **Typ:** integer (ppb)
+- **Berechnung:** `voc_mgm3 * 1000`
+- **Verwendung:** Für HA-Karten die ppb bevorzugen
+
+#### `voc_accuracy` — VOC Genauigkeitsstatus
+- **Typ:** integer (0–3)
+
+#### `bsec_calibrated` — Kalibrierungsstatus
+- **Typ:** binary (0/1)
+- **Wert 1:** `iaqAccuracy >= 1`
+
+---
+
+## DS18B20 Temperatursensor
+
+#### `external_temperature` — Externe Temperatur
+- **Typ:** float, 2 Dezimalstellen (°C)
+- **Bereich:** -55 bis +125 °C
+- **Genauigkeit:** ±0.5 °C (-10 bis +85 °C)
+- **Auflösung:** 12-bit (0.0625 °C)
+- **Verwendung:** Primäre Raumtemperatur (kein Selbsterwärmungseffekt)
+- **Leseintervall:** 10 Sekunden
+
+---
+
+## PMS5003 Feinstaubsensor
+
+Messprinzip: Laser-Streulicht — Partikel werden gezählt und in Massenkonzentration umgerechnet.
+
+#### `pm1_0` — PM1.0
+- **Typ:** integer (µg/m³)
+- **Definition:** Partikel mit Durchmesser ≤ 1.0 µm
+- **Gesundheit:** Dringen bis in Lungenbläschen vor
+
+#### `pm2_5` — PM2.5
+- **Typ:** integer (µg/m³)
+- **Definition:** Partikel ≤ 2.5 µm
+
+| WHO-Grenzwert | Wert |
+|---------------|------|
+| Jahresmittel | 5 µg/m³ |
+| 24h-Mittel | 15 µg/m³ |
+
+#### `pm10` — PM10
+- **Typ:** integer (µg/m³)
+- **Definition:** Partikel ≤ 10 µm
+
+| WHO-Grenzwert | Wert |
+|---------------|------|
+| Jahresmittel | 15 µg/m³ |
+| 24h-Mittel | 45 µg/m³ |
+
+---
+
+## Berechnete Komfortwerte (intern auf ESP32)
+
+#### `dew_point` — Taupunkt
+- **Typ:** float, 1 Dezimalstelle (°C)
+- **Berechnung:** Magnus-Formel aus Temperatur + Luftfeuchtigkeit
+- **Bedeutung:** Unter diesem Wert kondensiert Wasserdampf
+
+#### `heat_index` — Gefühlte Temperatur
+- **Typ:** float, 1 Dezimalstelle (°C)
+- **Berechnung:** Rothfusz-Regression (Temperatur + Luftfeuchtigkeit)
+- **Bedeutung:** Relevanter über 27 °C bei hoher Luftfeuchtigkeit
+
+#### `absolute_humidity` — Absolute Luftfeuchtigkeit
+- **Typ:** float, 2 Dezimalstellen (g/m³)
+- **Berechnung:** Aus Temperatur und relativer Luftfeuchtigkeit
+- **Verwendung:** Lüftungssteuerung (innen vs. außen vergleichen)
+
+#### `comfort_index` — Komfortindex
+- **Typ:** integer (0–100)
+- **Berechnung:** Kombiniert Temperatur, Luftfeuchtigkeit und Heat Index
+- **100:** Optimaler Komfort; niedrigere Werte = zu warm/kalt/trocken/feucht
+
+---
+
+## AQI-Werte (intern berechnet)
+
+#### `aqi_index` — Gesamt-AQI
+- **Typ:** float, 1 Dezimalstelle
+- **Berechnung:** Gewichtete Kombination aus PM2.5-AQI, PM10-AQI, IAQ-AQI
+- **Grundlage:** US-EPA AQI Skala
+
+#### `aqi_category` — AQI Kategorie
+- **Typ:** integer (0–5)
+
+| Wert | Bedeutung |
+|------|-----------|
+| 0 | Good (0–50) |
+| 1 | Moderate (51–100) |
+| 2 | Unhealthy for Sensitive Groups (101–150) |
+| 3 | Unhealthy (151–200) |
+| 4 | Very Unhealthy (201–300) |
+| 5 | Hazardous (300+) |
+
+#### `pm2_5_aqi` — PM2.5 AQI
+- **Typ:** integer
+- **Berechnung:** US-EPA Breakpoint-Tabelle für PM2.5
+
+#### `pm10_aqi` — PM10 AQI
+- **Typ:** integer
+- **Berechnung:** US-EPA Breakpoint-Tabelle für PM10
+
+#### `iaq_aqi` — IAQ → AQI Umrechnung
+- **Typ:** integer
+- **Berechnung:** Lineares Mapping von BSEC IAQ (0–500) auf AQI Skala
+
+---
+
+## Alert-Flags (Binary Sensors)
+
+Alle Flags: integer 0 oder 1
+
+| Feld | Auslöser |
+|------|---------|
+| `alert_aqi` | AQI > 100 (Unhealthy for Sensitive Groups) |
+| `alert_co2` | CO₂ > 1500 ppm |
+| `alert_pm25` | PM2.5 > 35 µg/m³ |
+| `alert_tvoc` | TVOC > 1.0 mg/m³ |
+| `alert_humidity_low` | Luftfeuchtigkeit < 30 % |
+| `alert_humidity_high` | Luftfeuchtigkeit > 70 % |
+| `ventilation_needed` | Kombination aus CO₂ oder TVOC-Alert |
+
+---
+
+## Sensor-Verfügbarkeit (Binary Sensors)
+
+| Feld | Bedeutung |
+|------|-----------|
+| `sensor_bme68x_available` | BME680/688 initialisiert und liefert Daten |
+| `sensor_ds18b20_available` | DS18B20 gefunden und liest Temperatur |
+| `sensor_pms5003_available` | PMS5003 kommuniziert (0 nach 5 Fehler in Folge) |
+| `bsec_calibrated` | iaqAccuracy >= 1 |
+| `sensor_reliable` | Mindestens ein Sensor liefert valide Daten |
+| `bme68x_stable` | iaqAccuracy >= 2 |
+| `bme68x_runin_complete` | iaqAccuracy >= 3 (vollständig kalibriert) |
+| `sensors_available_count` | Anzahl aktiver Sensoren (0–3) |
+
+**Wichtig:** Alle Sensor-Felder werden immer publiziert, auch wenn der Sensor offline ist (Wert = 0). `sensor_<x>_available = 0` zeigt die Nichtverfügbarkeit an.
+
+---
+
+## System-Status
+
+| Feld | Typ | Bedeutung |
+|------|-----|-----------|
+| `uptime` | integer (s) | Sekunden seit letztem Reboot |
+| `free_heap` | integer (Bytes) | Freier Heap-Speicher |
+| `wifi_rssi` | integer (dBm) | WLAN-Signalstärke |
+| `wifi_connected` | binary | WLAN verbunden |
+| `mqtt_connected` | binary | MQTT-Broker verbunden |
+| `ip_address` | string | Aktuelle IP-Adresse |
+| `stealth_mode` | binary | Stealth-Modus aktiv (Display + LEDs aus) |
+| `display_enabled` | binary | OLED erkannt und aktiv |
+| `current_view` | integer (0–4) | Aktuell angezeigte View (0=Overview … 4=System) |
+
+---
+
+## BSEC Konfiguration
+
+**Modus:** LP (Low Power) — 3-Sekunden-Messintervall  
+**Vorteil:** Zuverlässige CO₂/VOC-Ausgaben (ULP liefert hier Nullwerte)  
+**State-Speicherung:** alle 6h in EEPROM (Adresse 0); zusätzlich sofort beim Erreichen von iaqAccuracy=2
+
+Aktive BSEC-Outputs:
+```
+BSEC_OUTPUT_IAQ
+BSEC_OUTPUT_STATIC_IAQ
+BSEC_OUTPUT_CO2_EQUIVALENT
+BSEC_OUTPUT_BREATH_VOC_EQUIVALENT
+BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_TEMPERATURE
+BSEC_OUTPUT_SENSOR_HEAT_COMPENSATED_HUMIDITY
+BSEC_OUTPUT_RAW_PRESSURE
+BSEC_OUTPUT_RAW_GAS
+BSEC_OUTPUT_STABILIZATION_STATUS
+BSEC_OUTPUT_RUN_IN_STATUS
+BSEC_OUTPUT_GAS_PERCENTAGE
+```
+
+---
+
+## Wichtige Hinweise
+
+- **CO₂ und TVOC sind Schätzwerte** — kein direkter Gassensor, nur BSEC-Algorithmus
+- **PMS5003** ist unzuverlässig bei Luftfeuchtigkeit > 85 %
+- **BME680 Selbsterwärmung** wird durch BSEC und Software-Offset (`DEFAULT_TEMP_CORRECTION = -3.5 °C`) kompensiert; DS18B20 ist die Referenztemperatur
+- **Erste 24–48h nach Neuinstallation:** iaqAccuracy ≤ 1, CO₂/VOC-Werte noch unzuverlässig
+
+---
+
+*Dokumentiert für Firmware v1.5.5*

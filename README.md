@@ -1,387 +1,324 @@
-# 🌪️ ESP32 Air Quality Monitor v1.5.4
+# ESP32 Air Quality Monitor v1.5.5
 
-![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen) ![Version](https://img.shields.io/badge/Version-1.5.4-blue)
+![ESP32](https://img.shields.io/badge/ESP32-WROOM--32-blue) ![Sensors](https://img.shields.io/badge/Sensors-3x-green) ![Status](https://img.shields.io/badge/Status-Production-brightgreen) ![Version](https://img.shields.io/badge/Version-1.5.5-blue)
 
 Enclosure on Printables: <https://www.printables.com/model/1400485-esp32-air-quality-monitor-beluftetes-sensorgehause>
 
-An advanced air‑quality sensor based on the ESP32‑WROOM‑32 with three precise sensors for comprehensive environmental monitoring.
+An advanced air-quality sensor based on the ESP32-WROOM-32 with three precise sensors for comprehensive environmental monitoring.
 
-## 📋 Overview
+## Overview
 
-This project implements a complete air‑quality monitoring station with:
-- **Real CO₂ and TVOC values** (calculated with BME680 + BSEC)
+This project implements a complete air-quality monitoring station with:
+- **Real CO2 and TVOC values** (calculated with BME680/BME688 + BSEC)
 - **Particulate matter measurement** (PM1.0, PM2.5, PM10)
 - **Precise temperature measurement** via external DS18B20
-- **MQTT Home Assistant integration** with automatic discovery
+- **MQTT Home Assistant integration** with automatic discovery (50+ entities)
 - **Internal AQI calculation** (no external dependencies)
-- **OLED display** for local visualization
+- **OLED display** for local visualization with 5 views
 - **RGB LED status indicator** with smooth color transitions
+- **Stealth mode** (display and LED off)
 
-## 🔧 Hardware Components
+## Hardware Components
 
 ### Main Board
-- **ESP32‑WROOM‑32** – microcontroller with Wi‑Fi
+- **ESP32-WROOM-32** – microcontroller with Wi-Fi
 
 ### Sensors
-| Sensor | Type | Measurements |
-|--------|------|--------------|
-| **BME680** | 4‑in‑1 environmental sensor | Temperature, humidity, pressure, gas resistance |
-| **PMS5003** | Particulate matter sensor | PM1.0, PM2.5, PM10 µg/m³ |
-| **DS18B20** | Precision temperature sensor | External temperature (±0.5 °C) |
+| Sensor | Interface | Pin | Measurements |
+|--------|-----------|-----|--------------|
+| **BME680/BME688** | I2C | SDA=21, SCL=22 | Temperature, humidity, pressure, gas resistance, IAQ, CO2eq, TVOC |
+| **PMS5003** | UART | RX=16, TX=17 | PM1.0, PM2.5, PM10 µg/m³ |
+| **DS18B20** | 1-Wire | GPIO27 | External temperature (±0.5 °C) |
 
 ### Output Devices
-- **SH1106 OLED display** (128×64) – local data display
-- **WS2812B RGB LEDs** – status and air‑quality indicator
+| Component | Interface | Pin |
+|-----------|-----------|-----|
+| **SH1106 OLED** (128×64) | I2C | SDA=21, SCL=22 |
+| **WS2812B RGB LEDs** (3x) | GPIO | GPIO5 |
+| **Button** | GPIO | GPIO33 |
 
-## 🌟 Key Features
+## Key Features
 
-### ✨ BSEC Algorithm Integration
-- **Bosch BSEC library** for precise air‑quality measurement
-- **IAQ index** (Indoor Air Quality)
-- **CO₂ equivalent** and **TVOC equivalent** calculation
-- **Adaptive calibration algorithm**
+### BSEC Algorithm Integration
+- **Bosch BSEC library** (LP mode, 3s interval) for precise air-quality measurement
+- **IAQ index** (Indoor Air Quality, 0-500)
+- **CO2 equivalent** and **TVOC equivalent** calculation
+- **Adaptive calibration** — state persisted to EEPROM every 6 hours
 
-### 📡 MQTT Home Assistant Integration
+### MQTT Home Assistant Integration
 - **Automatic device discovery** via MQTT discovery protocol
-- **Comprehensive sensor data** (50+ sensors including calculated values)
+- **50+ sensor entities** including calculated values, alerts, and system status
 - **Real-time updates** every 10 seconds
-- **Wi‑Fi auto‑reconnect** with fallback modes
-- **All calculations performed internally** on ESP32 (no external dependencies)
+- **Wi-Fi auto-reconnect** with fallback modes
+- **All calculations performed on ESP32** — no external dependencies
+- **`has_entity_name: true`** + `object_id` for clean, predictable entity IDs
 
-### 🔋 Energy Efficiency
-- **BSEC LP mode** (Low Power, 3s interval for reliable CO₂/VOC)
-- **PMS5003 sleep mode** between measurements
-- **Adaptive sensor timing**
+### OLED Display Views
+| View | Content |
+|------|---------|
+| OVERVIEW | AQI, level, temperature, humidity, CO2, PM2.5 |
+| ENVIRONMENT | DS18B20 temp, BME68X temp/humidity/pressure |
+| PARTICLES | PM1.0, PM2.5, PM10, AQI |
+| GAS | IAQ, static IAQ, CO2, VOC, gas resistance, calibration |
+| SYSTEM | Uptime, WiFi, IP, sensor count, firmware version |
 
-## 📊 Measured Values
+### LED Status Colors
+| Color | IAQ Range | Meaning |
+|-------|-----------|---------|
+| Green | 0-50 | Excellent |
+| Yellow | 51-100 | Good |
+| Orange | 101-150 | Lightly polluted |
+| Red | 151-200 | Moderately polluted |
+| Purple | 201-300 | Heavily polluted |
+| Dark red | 300+ | Severely polluted |
 
-### Air Quality (BME680 + BSEC)
-- **IAQ**: 0‑500 (Indoor Air Quality Index)
-- **CO₂ equivalent**: 400‑40000 ppm
-- **TVOC equivalent**: 0‑60 mg/m³
-- **Accuracy indicators** for each value
-
-### Environmental Data
-- **Temperature**: ‑40 °C to +85 °C (BME680 compensated)
-- **Humidity**: 0‑100 % rH (±3 %)
-- **Pressure**: 300‑1100 hPa (±1.0 hPa)
-- **External temperature**: DS18B20 (±0.5 °C)
-
-### Particulate Matter (PMS5003)
-- **PM1.0**: particles ≤1.0 µm
-- **PM2.5**: particles ≤2.5 µm
-- **PM10**: particles ≤10 µm
-
-## 🔗 Installation
+## Installation
 
 ### 1. Hardware Connections
 ```
-BME680:  SDA → GPIO21, SCL → GPIO22
-PMS5003: RX → GPIO16, TX → GPIO17
-DS18B20: Data → GPIO27
-OLED:    SDA → GPIO21, SCL → GPIO22
-LEDs:    Data → GPIO5
-Button:  Select → GPIO33
+BME680/688:  SDA → GPIO21, SCL → GPIO22 (addr 0x76 or 0x77)
+PMS5003:     RX → GPIO16, TX → GPIO17
+DS18B20:     Data → GPIO27 (with 4.7kΩ pull-up)
+OLED:        SDA → GPIO21, SCL → GPIO22 (addr 0x3C)
+LEDs:        Data → GPIO5
+Button:      GPIO33 (internal pull-up)
 ```
 
-### 2. Software Requirements
-- **Arduino IDE** or **PlatformIO**
-- **ESP32 board package**
-  - **Libraries**: 
-    - BSEC (Bosch Sensortec Environmental Cluster)
-    - PMS (PMS5003 sensor library)
-    - DallasTemperature (DS18B20 temperature sensor)
-    - U8g2lib (OLED display)
-    - NeoPixel (WS2812B RGB LEDs)
-    - ArduinoJson
-    - PubSubClient (MQTT)
-    - ArduinoOTA (for over-the-air updates)
+### 2. Required Libraries
+- BSEC Software Library (Bosch Sensortec)
+- PMS (PMS5003 sensor)
+- DallasTemperature + OneWire (DS18B20)
+- U8g2lib (OLED display)
+- Adafruit NeoPixel (WS2812B LEDs)
+- ArduinoJson
+- PubSubClient (MQTT)
+- ArduinoOTA
 
 ### 3. Configuration
-1. Clone the repository:
-```bash
-git clone https://github.com/Abrechen2/AirQualityMonitor.git
-cd AirQualityMonitor
-```
 
-2. Create `secrets.h` from the template:
+Create `secrets.h` from the template:
 ```bash
 cp secrets_template.h secrets.h
 ```
 
-3. Enter Wi‑Fi and MQTT credentials in `secrets.h`:
+Fill in credentials:
 ```cpp
-// ===== WIFI CONFIGURATION =====
-#define WIFI_SSID "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD "YOUR_PASSWORD"
-
-// ===== MQTT CONFIGURATION =====
-#define MQTT_BROKER_HOST "192.168.1.100"  // Your MQTT broker IP or hostname
-#define MQTT_BROKER_PORT 1883              // MQTT port (usually 1883, use 8883 for SSL/TLS)
-
-// Optional: MQTT authentication (comment out if not needed)
-// #define MQTT_USERNAME "your_mqtt_username"
-// #define MQTT_PASSWORD "your_mqtt_password"
+#define WIFI_SSID       "YOUR_SSID"
+#define WIFI_PASSWORD   "YOUR_PASSWORD"
+#define MQTT_BROKER_HOST "192.168.1.100"
+#define MQTT_BROKER_PORT 1883
+#define HOSTNAME        "ENV-Room_Name"
+#define MQTT_TOPIC      "ENV-Room_Name"   // must match HOSTNAME
+#define OTA_PASSWORD    "yourpassword"
 ```
 
-4. Upload the code to the ESP32
+### 4. Compile and Flash
 
-### 4. Calibration
-- **BME680**: automatic BSEC calibration over 4‑7 days
-- **State persistence** in EEPROM every 6 hours
-- **CO₂/TVOC accuracy** improves over time
-
-## 🛠️ Debugging
-
-- Serial debug output can be controlled via `DEBUG_ENABLED` in `config.h`.
-- Additional macros `DEBUG_INFO`, `DEBUG_WARN` and `DEBUG_ERROR` provide clearly formatted logs for easier troubleshooting.
-
-## 📈 Data Format
-
-### Binary Transmission (44 bytes)
-All sensor data is published as a single JSON message to the MQTT state topic:
-```
-homeassistant/sensor/airqualitymonitor_<MAC>/state
+**Compile:**
+```bash
+ARDUINO_CLI="C:/Program Files/Arduino IDE/resources/app/lib/backend/resources/arduino-cli.exe"
+"$ARDUINO_CLI" compile --fqbn esp32:esp32:esp32 \
+  --build-property "build.partitions=min_spiffs" \
+  --build-property "upload.maximum_size=1966080" \
+  ./
 ```
 
-Example JSON payload:
+**OTA Flash:**
+```bash
+ESPOTA="C:/Users/.../Arduino15/packages/esp32/hardware/esp32/3.3.7/tools/espota.py"
+python "$ESPOTA" -i <DEVICE_IP> -p 3232 --auth="<OTA_PASSWORD>" \
+  -f ./build/AirQualityMonitor.ino.bin
+```
+
+### 5. Calibration
+- **BME680/688**: automatic BSEC calibration, accurate after 24-48h
+- **State persistence** in EEPROM every 6 hours (survives power cycles)
+- **CO2/TVOC accuracy** improves over 4-7 days of continuous operation
+
+## MQTT Data Format
+
+### Topics
+| Topic | Description |
+|-------|-------------|
+| `tele/<HOSTNAME>/state` | JSON payload, published every 10s |
+| `tele/<HOSTNAME>/LWT` | `Online` / `Offline` (retained) |
+| `homeassistant/<domain>/airqualitymonitor_<MAC>_<field>/config` | Discovery configs (retained) |
+
+### Example State Payload
 ```json
 {
-  "temperature": 19.8,
-  "humidity": 37.3,
-  "pressure": 952.83,
-  "iaq": 75,
+  "temperature": 21.45,
+  "humidity": 48.2,
+  "pressure": 956.3,
+  "iaq": 51,
+  "static_iaq": 49,
   "iaq_accuracy": 3,
-  "co2": 600.92,
+  "static_iaq_accuracy": 3,
+  "co2": 621,
   "co2_accuracy": 3,
-  "voc": 0.50,
+  "voc": 0.52,
   "voc_accuracy": 3,
-  "pm1_0": 1,
-  "pm2_5": 3,
-  "pm10": 4,
-  "aqi_index": 25,
+  "gas_resistance": 183420,
+  "bsec_calibrated": 1,
+  "tvoc_ppb": 520,
+  "tvoc_mgm3": 0.52,
+  "pm1_0": 2,
+  "pm2_5": 4,
+  "pm10": 5,
+  "dew_point": 10.1,
+  "heat_index": 21.3,
+  "absolute_humidity": 8.74,
+  "comfort_index": 72,
+  "external_temperature": 22.06,
+  "aqi_index": 26.4,
   "aqi_category": 0,
-  "dew_point": 4.2,
-  "heat_index": 19.5,
-  "absolute_humidity": 6.8,
-  "comfort_index": 75,
+  "pm2_5_aqi": 16,
+  "pm10_aqi": 4,
+  "iaq_aqi": 26,
+  "sensor_bme68x_available": 1,
+  "sensor_ds18b20_available": 1,
+  "sensor_pms5003_available": 1,
+  "sensors_available_count": 3,
+  "sensor_reliable": 1,
+  "bme68x_stable": 1,
+  "bme68x_runin_complete": 1,
+  "wifi_rssi": -62,
   "wifi_connected": 1,
   "mqtt_connected": 1,
-  "uptime": 3600,
-  "free_heap": 150000
+  "stealth_mode": 0,
+  "display_enabled": 1,
+  "current_view": 0,
+  "uptime": 14523,
+  "free_heap": 148320,
+  "ip_address": "192.168.200.78",
+  "alert_aqi": 0,
+  "alert_co2": 0,
+  "alert_pm25": 0,
+  "alert_tvoc": 0,
+  "alert_humidity_low": 0,
+  "alert_humidity_high": 0,
+  "ventilation_needed": 0
 }
 ```
 
-### Home Assistant Discovery
-The device automatically publishes discovery configurations for all sensors, binary sensors, and text sensors. Home Assistant will automatically create entities for:
-- **Environmental sensors**: temperature, humidity, pressure, external_temperature
-- **Air quality sensors**: IAQ, CO₂, VOC, gas resistance
-- **Particulate matter**: PM1.0, PM2.5, PM10
-- **Calculated values**: AQI index, AQI category, dew point, heat index, absolute humidity, comfort index
-- **System status**: WiFi status, MQTT status, uptime, free heap, IP address, stealth mode, display status
-- **Alert sensors**: AQI alerts, CO₂ alerts, PM2.5 alerts, TVOC alerts, humidity alerts, ventilation needed
+### Home Assistant Entities
+The device publishes discovery configs for all sensors automatically. Entity IDs follow the pattern `<domain>.env_<room>_<field>`.
 
-## 🎯 Use Cases
+**Environmental:**
+`temperature`, `humidity`, `pressure`, `external_temperature`, `dew_point`, `heat_index`, `absolute_humidity`
 
-- **Smart home integration** via Home Assistant
-- **Office air‑quality monitoring**
-- **Allergy and asthma prevention**
-- **HVAC system optimization**
-- **Air‑filter efficiency monitoring**
-- **Automated ventilation control** based on air quality alerts
+**Air Quality (BSEC):**
+`iaq`, `static_iaq`, `co2`, `voc`, `tvoc_mgm3`, `tvoc_ppb`, `gas_resistance`, accuracy indicators
 
-## 📋 Status LEDs
+**Particulate Matter:**
+`pm1_0`, `pm2_5`, `pm10`, `pm2_5_aqi`, `pm10_aqi`
 
-| Color | Meaning |
-|-------|---------|
-| 🟢 Green | Excellent (IAQ 0‑50) |
-| 🟡 Yellow | Good (IAQ 51‑100) |
-| 🟠 Orange | Lightly polluted (IAQ 101‑150) |
-| 🔴 Red | Moderately polluted (IAQ 151‑200) |
-| 🟣 Purple | Heavily polluted (IAQ 201‑300) |
-| ⚫ Dark red | Severely polluted (IAQ 300+) |
+**AQI:**
+`aqi_index`, `aqi_category`, `iaq_aqi`
 
-## 🛠️ Troubleshooting
+**Comfort:**
+`comfort_index`
 
-### Wi‑Fi Connection Issues
-- Check SSID and password in `secrets.h`
-- Ensure router compatibility (2.4 GHz required)
-- Verify signal strength
+**System:**
+`uptime`, `free_heap`, `wifi_rssi`, `ip_address`, `current_view`, `sensors_available_count`
 
-### Sensor Errors
-- Inspect I²C connections
-- Check sensor status in the serial monitor
-- Verify power supply (3.3 V/5 V)
+**Binary sensors:**
+`sensor_bme68x_available`, `sensor_ds18b20_available`, `sensor_pms5003_available`, `bsec_calibrated`, `sensor_reliable`, `bme68x_stable`, `bme68x_runin_complete`, `wifi_connected`, `mqtt_connected`, `stealth_mode`, `display_enabled`
 
-### BSEC Calibration
-The BSEC algorithm requires calibration for accurate CO₂/VOC readings:
+**Alerts:**
+`alert_aqi`, `alert_co2`, `alert_pm25`, `alert_tvoc`, `alert_humidity_low`, `alert_humidity_high`, `ventilation_needed`
 
-**Initial Calibration (LP Mode):**
-- **First 5 minutes**: accuracy = 0 (sensor warming up)
-- **5-20 minutes**: accuracy = 1 (initial calibration)
-- **20+ minutes**: accuracy = 2-3 (fully calibrated)
+## Debugging
 
-**Important Notes:**
-- Calibration state is saved to EEPROM every 6 hours
-- If you change BSEC mode (ULP ↔ LP), old calibration data becomes invalid
-- After mode changes, reset calibration by uncommenting `resetBsecCalibration()` in `SensorManager.h:258`
-- For optimal results, let the sensor run for 24 hours in a normal environment
+Serial debug output is controlled via `DEBUG_ENABLED` in `config.h`. Macros `DEBUG_INFO`, `DEBUG_WARN`, and `DEBUG_ERROR` provide formatted logs.
 
-## 📐 Schematics & Layout
+## Schematics & Layout
 
-All KiCad files of the project are located in the [Schematics](Schematics) directory.
-The subfolder `Schematics/KiCad` contains the complete KiCad project (`AirQualityMonitor.kicad_pro`, `.kicad_pcb`, `.kicad_sch`).
-For a quick view without KiCad the following PDFs are available:
+All KiCad files are in the [Schematics](Schematics) directory:
+- [MainPCB-Schematic.pdf](Schematics/MainPCB-Schematic.pdf)
+- [MainPCB-Layout.pdf](Schematics/MainPCB-Layout.pdf)
 
-- [MainPCB-Schematic.pdf](Schematics/MainPCB-Schematic.pdf) – schematic
-- [MainPCB-Layout.pdf](Schematics/MainPCB-Layout.pdf) – board layout
-
-## 📁 Project Structure
+## Project Structure
 
 ```
 AirQualityMonitor/
 ├── AirQualityMonitor.ino    # Main program
-├── config.h                 # Hardware configuration
-├── secrets_template.h       # Template for sensitive data
-├── SensorManager.h          # Sensor management
-├── DisplayManager.h         # OLED display
-├── ButtonHandler.h          # Button control
-├── LEDManager.h             # RGB LED control
-├── WiFiManager.h            # WiFi connection management
-├── MQTTManager.h            # MQTT and Home Assistant integration
-├── Calculations.h           # Internal AQI and comfort calculations
-├── TimeUtils.h              # Time and scheduling helpers
-├── DATENPUNKTE.md          # Documentation of data points (German)
+├── config.h                 # Hardware and timing configuration
+├── secrets.h                # Credentials (not tracked in git)
+├── secrets_template.h       # Template for secrets.h
+├── SensorManager.h          # BME680/688, DS18B20, PMS5003 management
+├── DisplayManager.h         # SH1106 OLED display and NeoPixel LEDs
+├── ButtonHandler.h          # Button handling (view switch, stealth toggle)
+├── LEDManager.h             # RGB LED control with smooth transitions
+├── WiFiManager.h            # WiFi connection and reconnect logic
+├── MQTTManager.h            # MQTT, Home Assistant discovery, data publish
+├── Calculations.h           # AQI, comfort, dew point, heat index
+├── TimeUtils.h              # Uptime helpers
+├── DATENPUNKTE.md           # Detailed data point documentation (German)
+├── CLAUDE.md                # Device inventory and OTA procedure
 ├── Schematics/              # KiCad project and PDFs
-├── NodeRed/                 # Legacy Node‑RED flows (deprecated)
 ├── Printdata/               # STL and STEP files for enclosure
 ├── Pictures/                # Photos of the device
 ├── LICENSE                  # MIT license
 └── README.md                # This file
 ```
 
-## 🔄 Updates and Maintenance
+## Troubleshooting
 
-- **BSEC state backup**: automatically every 6 h in EEPROM
-- **Sensor calibration**: continuous during operation
+### Wi-Fi Connection Issues
+- Check SSID and password in `secrets.h`
+- 2.4 GHz only — 5 GHz not supported by ESP32-WROOM-32
+- Verify signal strength (`wifi_rssi` entity in HA)
 
-## 🤝 Contributing
+### Sensor Not Detected
+- Check I2C connections (SDA=21, SCL=22)
+- BME680/688: address must be 0x76 or 0x77 — system auto-detects both
+- PMS5003: check UART wiring (RX/TX crossed), verify 5V power supply
 
-Contributions are welcome! Please:
+### BSEC Calibration
+| Phase | iaq_accuracy | Time |
+|-------|-------------|------|
+| Warm-up | 0 | First 5 min |
+| Initial calibration | 1 | 5-30 min |
+| Calibrating | 2 | Up to 24h |
+| Fully calibrated | 3 | After 4-7 days |
+
+State is saved to EEPROM on first accuracy=2 and every 6h thereafter. After power cycle, calibration resumes quickly from saved state.
+
+### OTA Flash Fails ("No response from device")
+- Verify OTA password matches `OTA_PASSWORD` in `secrets.h`
+- OTA port 3232 must be reachable from same VLAN
+- Ensure `secrets.h` has the correct `HOSTNAME` for the target device before compiling
+- See `CLAUDE.md` for the full sequential flash procedure
+
+## Version History
+
+| Version | Changes |
+|---------|---------|
+| **v1.5.5** | Sensible MQTT decimal precision; `has_entity_name` + `object_id` for clean HA entity IDs; all fields always published; `aqi_color_code` removed; firmware version on OLED |
+| **v1.5.4** | MAC read after WiFi init (fixes discovery MAC mismatch); unique MQTT client ID per device |
+| **v1.5.3** | BSEC state persistence to EEPROM; config EEPROM storage |
+| **v1.5.2** | `expire_after` in MQTT discovery |
+| **v1.5.1** | Fix MAC read before WiFi init returning `00ff00000000` |
+| **v1.2.0** | MQTT Home Assistant integration; internal AQI calculation; removed Node-RED dependency |
+| **v1.1.0** | Switch BSEC from ULP to LP mode for reliable CO2/VOC output |
+| **v1.0.0** | Initial release |
+
+## Contributing
+
 1. Fork the repository
 2. Create a feature branch
 3. Commit your changes
 4. Open a pull request
 
-## 👨‍💻 Author
+## Author
 
 **Abrechen2**
 
-### Version History
-- **v1.5.4** (2026) – MQTT discovery MAC mismatch fix, BSEC state improvements, PMS5003 failure tracking
-- **v1.5.3** (2026) – MQTT rapid-reconnect loop fix, unique client IDs, discovery stability
-- **v1.5.1** (2025) – Bugfixes and stability improvements
-- **v1.2.0** (2025) – MQTT Home Assistant integration, internal AQI calculation, removed Node-RED dependency
-- **v1.1.0** (2025) – Fixed BSEC CO₂/VOC zero values issue by switching from ULP to LP mode
-- **v1.0.0** (2025) – Complete Stealth & Gas Sensor Integration + Byte Transmission
+## License
 
-## 📄 License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
-
-## 📋 Changelog
-
-### v1.5.4 (2026)
-**Bug Fixes:**
-- Fixed critical MQTT discovery MAC mismatch: `discoveryPrefix` was computed in the constructor before the WiFi driver was initialized, causing `WiFi.macAddress()` to return garbage bytes. Discovery topic and payload carried different MACs, so Home Assistant silently discarded all discovery messages. Fixed by recomputing `discoveryPrefix` and `binarySensorDiscoveryPrefix` in `init()` after WiFi is active.
-- Fixed BSEC state load on fresh flash: uninitialized EEPROM (all 0xFF) was misread as invalid length (-1 in signed format) and logged as an error. Now correctly detected as "no state saved" and handled silently.
-- Fixed BSEC state not persisting across power cycles: state was only saved after the 6-hour periodic interval. Now saved immediately when IAQ accuracy first reaches ≥ 2 (typically ~30 minutes after boot).
-- Fixed PMS5003 failures not surfacing to Home Assistant: consecutive read failures were logged but `pms5003Available` stayed `true`. Now set to `false` after 5 consecutive failures.
-
-**Diagnostics:**
-- Added `scanI2CBus()`: logs all I2C devices found when BME68X is not detected, to aid hardware troubleshooting.
-- Added 150 ms BME68X power-up delay (shares I2C bus with display).
-
-**MQTT Discovery Stability:**
-- `reconnect()` resets `discoveryPublished` to force republish after any broker reconnect, restoring retained messages lost on broker restart.
-- Mid-discovery connection check (`DISCOVERY_CHECK_CONNECTED`) aborts publish loop if broker drops, with 60 s backoff retry.
-- Per-entity `mqttClient.loop()` + 10 ms delay to reduce broker overload during bulk discovery publish.
-
-### v1.5.3 (2026)
-**Bug Fixes:**
-- Fixed MQTT rapid-reconnect loop caused by duplicate client IDs on multiple devices
-- Fixed PMS5003 UART buffer containing stale data after firmware flash
-- Unique MQTT client ID per device via hostname stored in EEPROM
-
-### v1.5.1 (2025)
-**Bugfixes:**
-- Fixed MQTT discovery sensor names (removed duplicate "Air Quality Monitor" prefix)
-- Fixed JSON field names to match Home Assistant discovery configuration
-- Fixed missing sensor values in Home Assistant (all fields now properly published)
-- Improved MQTT data publishing reliability
-- Fixed const-correctness issues in MQTTManager
-- Fixed display buffer send error handling
-
-**Technical Details:**
-- Simplified sensor names for better Home Assistant integration
-- All JSON field names now match discovery configuration exactly
-- Alert flags always included in JSON (even when 0)
-- Improved error handling and code stability
-
-### v1.2.0 (2025)
-**Major Changes:**
-- **Removed Node-RED dependency** - All calculations now performed internally on ESP32
-- **Added MQTT Home Assistant integration** with automatic device discovery
-- **Comprehensive sensor data** - 50+ sensors including calculated values, alerts, and system status
-- **Internal AQI calculation** - Combined AQI from PM2.5, PM10, CO₂, VOC, and IAQ
-- **Comfort calculations** - Dew point, heat index, absolute humidity, comfort index
-- **Alert system** - Automatic alerts for high AQI, CO₂, PM2.5, TVOC, and humidity
-- **Smooth LED transitions** - Gradual color changes for better visual feedback
-- **Memory optimization** - Replaced String objects with const char* where possible
-
-**Technical Details:**
-- All AQI calculations moved to `Calculations.h` module
-- MQTT discovery publishes configurations for all sensors automatically
-- Single JSON state topic contains all sensor data
-- Simplified field names for better Home Assistant integration
-- WiFi management separated into `WiFiManager.h` module
-- Removed binary transmission protocol in favor of MQTT JSON
-
-**Breaking Changes:**
-- Node-RED endpoints removed from `secrets.h`
-- MQTT configuration now required
-- Old Node-RED flows are deprecated (still available in `NodeRed/` folder)
-
-### v1.1.0 (2025-11-15)
-**Fixed:**
-- Fixed BSEC CO₂ equivalent and VOC equivalent returning zero values
-- Changed BSEC sample rate from ULP mode to LP mode (3s interval)
-- Added EEPROM calibration reset function for mode changes
-- Improved error handling and debug output for sensor initialization
-- Fixed redundant BSEC run() calls that could cause timing issues
-
-**Technical Details:**
-- BSEC ULP mode (Ultra Low Power) does not provide reliable CO₂/VOC equivalent outputs
-- Switched to BSEC LP mode (Low Power) with 3-second sampling interval
-- Slightly higher power consumption (~0.3mA vs ~0.1mA) but significantly better data quality
-- All BSEC outputs (IAQ, CO₂, VOC, temperature, humidity) now work correctly
-- Old calibration data from ULP mode is incompatible with LP mode
-- Added `resetBsecCalibration()` function to clear invalid calibration data
-- Recalibration takes 5-20 minutes after reset
-
-### v1.0.0 (2025)
-- Initial release with complete sensor integration
-- Stealth mode functionality
-- Binary data transmission protocol
-- Node-RED integration
-
-## 📝 Support
-
-If you have questions or problems:
-- Open an issue in this repository
-- Check the documentation in the header files
-- Consult [DATENPUNKTE.md](DATENPUNKTE.md) for technical details
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-*For detailed information about the data points see [DATENPUNKTE.md](DATENPUNKTE.md)*
+*For detailed data point documentation see [DATENPUNKTE.md](DATENPUNKTE.md)*

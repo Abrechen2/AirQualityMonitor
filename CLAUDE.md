@@ -88,6 +88,32 @@ Nach dem Reboot pruefe in HA:
   `C:/Users/Dennis Wittke/.config/arduino-cli.yaml`
   (data_dir: Arduino15, user_dir: D:/Projekte/Arduino)
 
+## Arduino IDE Board-Einstellungen
+
+| Einstellung | Wert |
+|-------------|------|
+| Board | ESP32 Dev Module |
+| CPU Frequency | 240MHz (WiFi/BT) |
+| Core Debug Level | None |
+| Erase All Flash Before Upload | Disabled |
+| Events Run On | Core 1 |
+| Flash Frequency | 80MHz |
+| Flash Mode | QIO |
+| Flash Size | 4MB (32Mb) |
+| JTAG Adapter | Disabled |
+| Arduino Runs On | Core 1 |
+| Partition Scheme | Default 4MB with spiffs (1.2MB APP/1.5MB SPIFFS) |
+| PSRAM | Disabled |
+| Upload Speed | 115200 |
+| Zigbee Mode | Disabled |
+
+**Hinweis Partition Scheme:** Die Arduino IDE GUI nutzt "Default" (1.2MB APP-Slots).
+Der arduino-cli OTA-Compile-Befehl verwendet stattdessen `min_spiffs` (1.9MB APP-Slots),
+da die Firmware-Binary (~1.1MB) damit mehr Spielraum hat.
+Fuer den initialen USB-Flash kann die IDE-Einstellung "Default" verwendet werden —
+danach funktioniert OTA mit beiden Partition-Schemes, solange die Binary kleiner als
+der OTA-Slot ist.
+
 ## Sensors & Hardware
 
 | Sensor | Interface | Pin/Adresse | Funktion |
